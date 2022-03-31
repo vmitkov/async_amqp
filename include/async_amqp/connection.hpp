@@ -1,9 +1,7 @@
 #pragma once
 
 #include <amqpcpp.h>
-
 #include <boost/asio.hpp>
-#include <boost/bind.hpp>
 
 #include <iostream> 
 #include <algorithm>
@@ -11,6 +9,9 @@
 #include <vector>
 #include <cassert>
 #include <cstddef>
+#include <optional>
+#include <bitset>
+#include <memory>
 
 namespace async_amqp
 {
@@ -21,6 +22,13 @@ namespace ip = io::ip;
 using tcp = ip::tcp;
 using error_code = boost::system::error_code;
 using work_guard_t = io::executor_work_guard<io::io_context::executor_type>;
+
+template<class F> auto scope_guard(F&& f) {
+	return std::unique_ptr<void, F>{(void*)1, std::forward<F>(f)};
+}
+
+// auto unique = scope_guard([&](void*) {/* cleanup here */});
+
 
 enum class severity_level_t
 {
@@ -53,7 +61,7 @@ inline std::ostream& operator<<(std::ostream& os, severity_level_t severity_leve
 	}
 }
 
-class connection_t : private AMQP::ConnectionHandler
+class connection_t : public AMQP::ConnectionHandler
 {
 public:
 	using log_handler_t = std::function<void(severity_level_t severity_level, std::string const& message)>;
@@ -62,94 +70,117 @@ public:
 	using closed_handler_t = std::function<void(connection_t& self)>;
 
 public:
-	connection_t(io::io_context& io_context, AMQP::Address&& address) :
-		connection_(this, address.login(), address.vhost()),
+	connection_t(io::io_context& io_context, AMQP::Address&& address, log_handler_t log_handler) :
 		//work_guard_(io_context.get_executor()),
 		io_context_(io_context),
 		address_(std::move(address)),
 		resolver_(io_context),
-		socket_(io_context)
+		socket_(io_context),
+		log_handler_(log_handler)
 	{
-		input_buffer_.prepare(connection_.maxFrame());
-		log_(severity_level_t::debug, "connection_t::connection_t");
+		log(severity_level_t::debug, "async_amqp::connection_t::connection_t");
 	}
 
 	virtual ~connection_t() noexcept
 	{
-		log_(severity_level_t::debug, "connection_t::~connection_t");
+		log(severity_level_t::debug, "async_amqp::connection_t::~connection_t");
 	}
+
+	inline void log(severity_level_t severity_level, std::string const& message)
+	{
+		if (log_handler_ != nullptr) { log_handler_(severity_level, message); }
+	}
+
+	inline void error(std::string const& message)
+	{
+		log(severity_level_t::error, message);
+		if (error_handler_ != nullptr) { error_handler_(*this, message); }
+	}
+
 
 	inline void open()
 	{
-		boost::asio::post(io_context_, [this]() { do_resolve_(); });
+		io::post(io_context_,
+			[this]()
+			{
+				if (state_.any()) { return; }
+				do_resolve_();
+			});
 	}
 
-	inline void close() 
+	inline void close()
 	{
-		boost::asio::post(io_context_, [this]() { connection_.close(); });
+		io::post(io_context_,
+			[this]()
+			{
+				if (state_[state_t::closing]) { return; }
+
+				state_.set(state_t::closing);
+
+				if (connection_o_) { connection_o_.reset(); }
+				do_close_();
+			});
 	}
 
-	AMQP::Connection& amqp_connection() { return connection_; }
+	AMQP::Connection* amqp_connection() { return connection_o_ ? &(*connection_o_) : nullptr; }
 
-	inline void on_log(log_handler_t handler) { log_handler_ = handler; }
 	inline void on_ready(ready_handler_t handler) { ready_handler_ = handler; }
 	inline void on_error(error_handler_t handler) { error_handler_ = handler; }
 	inline void on_closed(closed_handler_t handler) { closed_handler_ = handler; }
 
 private:
-	inline void log_(severity_level_t severity_level, std::string const& message)
-	{
-		if (log_handler_ != nullptr) { log_handler_(severity_level, message); }
-	}
-
 	void do_resolve_()
 	{
-		assert(!socket_.is_open());
+		using namespace std::placeholders;
+
+		assert(!socket_.is_open() && state_.none());
+
+		state_.set(state_t::resolving);
 
 		resolver_.async_resolve(
 			address_.hostname(),
 			std::to_string(address_.port()),
-			boost::bind(&connection_t::on_resolve_, this,
-				io::placeholders::error,
-				io::placeholders::results));
+			std::bind(&connection_t::on_resolve_, this, _1, _2));
 	}
 
 	void on_resolve_(
 		sys::error_code const& ec,
 		tcp::resolver::results_type const& endpoints)
 	{
+		auto guard{ scope_guard([&](void*) { state_.reset(state_t::resolving); }) };
+
 		if (!ec)
 		{
 			do_connect_(endpoints);
 		}
 		else
 		{
-			log_(
-				severity_level_t::error,
-				"async_amqp::connection_t::on_resolve_: " + ec.message());
+			error("async_amqp::connection_t::on_resolve_: " + ec.message());
 		}
 	}
 
 	void do_connect_(tcp::resolver::results_type const& endpoints)
 	{
-		assert(!socket_.is_open());
+		using namespace std::placeholders;
+		assert(!socket_.is_open() && state_[state_t::resolving]);
+
+		state_.set(state_t::connecting);
 
 		// Attempt a connection to each endpoint in the list until we
 		// successfully establish a connection.
-		io::async_connect(
-			socket_,
-			endpoints,
-			boost::bind(
-				&connection_t::on_connect_,
-				this,
-				io::placeholders::error));
+		io::async_connect(socket_, endpoints, std::bind(&connection_t::on_connect_, this, _1));
 	}
 
 	void on_connect_(sys::error_code const& ec)
 	{
+		auto guard{ scope_guard([&](void*) { state_.reset(state_t::connecting); }) };
+
 		if (!ec)
 		{
 			// The connection was successful. Send the request.
+			connection_o_.emplace(this, address_.login(), address_.vhost());
+			input_buffer_.prepare(connection_o_->maxFrame());
+
 			do_read_();
 			if (!output_buffers_.empty())
 			{
@@ -158,27 +189,28 @@ private:
 		}
 		else
 		{
-			log_(
-				severity_level_t::error,
-				"async_amqp::connection_t::on_connect_: " + ec.message());
+			error("async_amqp::connection_t::on_connect_: " + ec.message());
 		}
 	}
 
 	void do_write_()
 	{
+		using namespace std::placeholders;
+
 		if (!socket_.is_open()) { return; }
+
+		state_.set(state_t::writing);
 
 		io::async_write(socket_,
 			io::buffer(output_buffers_.front()),
-			boost::bind(
-				&connection_t::on_write_,
-				this,
-				boost::asio::placeholders::error));
+			std::bind(&connection_t::on_write_,	this, _1));
 	}
 
 
 	void on_write_(boost::system::error_code ec)
 	{
+		auto guard{ scope_guard([&](void*) { state_.reset(state_t::writing); }) };
+
 		if (!ec)
 		{
 			output_buffers_.pop_front();
@@ -189,30 +221,32 @@ private:
 		}
 		else
 		{
-			log_(
-				severity_level_t::error,
-				"async_amqp::connection_t::on_write_: " + ec.message());
-			if (socket_.is_open()) { do_close_(); }
+			error("async_amqp::connection_t::on_write_: " + ec.message());
 		}
 	}
 
 	void do_read_()
 	{
-		if (!socket_.is_open()) { return; }
+		using namespace std::placeholders;
+
+		if (!socket_.is_open() || !connection_o_) { return; }
+
+		state_.set(state_t::reading);
 
 		io::async_read(
 			socket_,
 			input_buffer_,
-			boost::asio::transfer_at_least(
-				connection_.expected() - parse_buffer_.size()),
-			boost::bind(
-				&connection_t::on_read_,
-				this,
-				boost::asio::placeholders::error));
+			io::transfer_at_least(
+				connection_o_->expected() - parse_buffer_.size()),
+			std::bind(&connection_t::on_read_, this, _1));
 	}
 
 	void on_read_(sys::error_code const& ec)
 	{
+		if (!connection_o_) { return; }
+
+		auto guard{ scope_guard([&](void*) { state_.reset(state_t::reading); }) };
+
 		if (!ec)
 		{
 			parse_buffer_.insert(
@@ -221,9 +255,9 @@ private:
 				io::buffers_end(input_buffer_.data()));
 			input_buffer_.consume(input_buffer_.size());
 
-			while (parse_buffer_.size() >= connection_.expected())
+			while (parse_buffer_.size() >= connection_o_->expected())
 			{
-				auto const parsed{ connection_.parse(
+				auto const parsed{ connection_o_->parse(
 					parse_buffer_.data(), parse_buffer_.size()) };
 				if (parsed > 0)
 				{
@@ -240,18 +274,39 @@ private:
 		}
 		else
 		{
-			log_(
-				severity_level_t::error,
-				"async_amqp::connection_t::on_read_: " + ec.message());
-
-			if (socket_.is_open()) { do_close_(); }
+			error("async_amqp::connection_t::on_read_: " + ec.message());
 		}
 	}
 
 	void do_close_()
 	{
-		error_code error;
-		socket_.close(error);
+		if (socket_.is_open())
+		{
+			error_code error;
+			socket_.close(error);
+			do_wait_for_closed_();
+		}
+	}
+
+	void do_wait_for_closed_()
+	{
+		if (!state_[state_t::closing]) { return; }
+
+		if (state_[state_t::resolving]
+			|| state_[state_t::connecting]
+			|| state_[state_t::reading]
+			|| state_[state_t::writing])
+		{
+			io::post(io_context_, [this]()
+				{
+					do_wait_for_closed_();
+				});
+		}
+		else
+		{
+			state_.reset();
+			if (closed_handler_ != nullptr) { closed_handler_(*this); }
+		}
 	}
 
 	/**
@@ -261,7 +316,7 @@ private:
 	 *  @param  data        memory buffer with the data that should be sent to RabbitMQ
 	 *  @param  size        size of the buffer
 	 */
-	virtual void onData(AMQP::Connection*, const char* data_p, size_t data_size)
+	virtual void onData(AMQP::Connection*, const char* data_p, std::size_t data_size)
 	{
 		// @todo
 		//  Add your own implementation, for example by doing a call to the
@@ -272,7 +327,7 @@ private:
 
 		std::vector<char> data(data_p, data_p + data_size);
 
-		boost::asio::post(
+		io::post(
 			io_context_,
 			[this, data = std::move(data)]() mutable
 		{
@@ -324,17 +379,26 @@ private:
 		// @todo
 		//  add your own implementation, for example by closing down the
 		//  underlying TCP connection too
+		connection_o_.reset();
 		do_close_();
-		if (closed_handler_ != nullptr) { closed_handler_(*this); }
 	}
 
 private:
+	enum state_t
+	{
+		resolving,
+		connecting,
+		reading,
+		writing,
+		closing,
+		size
+	};
+
 	io::io_context& io_context_;
-	//work_guard_t work_guard_;
 	AMQP::Address address_;
 	tcp::resolver resolver_;
 	tcp::socket socket_;
-	AMQP::Connection connection_;
+	std::optional<AMQP::Connection> connection_o_;
 	io::streambuf input_buffer_;
 	std::vector<char> parse_buffer_;
 	std::deque<std::vector<char>> output_buffers_;
@@ -344,6 +408,7 @@ private:
 	error_handler_t error_handler_{ nullptr };
 	closed_handler_t closed_handler_{ nullptr };
 
+	std::bitset<state_t::size> state_;
 };
 
 } //namespace async_amqp
