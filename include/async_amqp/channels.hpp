@@ -41,39 +41,129 @@ public:
 		log_handler_(log_handler),
 		reconnection_timer_(io_context_)
 	{
-		log(severity_level_t::debug, "async_amqp::channels_t::channels_t");
-		do_wait_for_reconnection_();
+		try
+		{
+			log(severity_level_t::debug, "async_amqp::channels_t::channels_t");
+			do_wait_for_reconnection_();
+		}
+		catch (...)
+		{
+			std::throw_with_nested(std::runtime_error("async_amqp::channels_t::channels_t"));
+		}
 	}
 
-	~channels_t()
+	~channels_t() noexcept
 	{
 		log(severity_level_t::debug, "async_amqp::channels_t::~channels_t");
 	}
 
-	inline void log(severity_level_t severity_level, std::string const& message)
+	inline void log(severity_level_t severity_level, std::string const& message) const noexcept
 	{
-		if (log_handler_ != nullptr) { log_handler_(severity_level, message); }
+		try
+		{
+			if (log_handler_ != nullptr) { log_handler_(severity_level, message); }
+		}
+		catch (...)
+		{
+		}
 	}
 
-	inline void open() noexcept { finish_ = false; }
+	inline void log_exception(int level = 0) const noexcept
+	{
+		try
+		{
+			throw;
+		}
+		catch (const std::system_error& e)
+		{
+			try {
+				log(severity_level_t::error, std::string(level, ' ')
+					+ "system_error: "s + e.what() + ", message: "s + e.code().message());
+				std::rethrow_if_nested(e);
+			}
+			catch (...) {
+				log_exception(++level);
+			}
+		}
+		catch (const boost::system::system_error& e)
+		{
+			try {
+				log(severity_level_t::error, std::string(level, ' ')
+					+ "system_error: "s + e.what() + ", message: "s + e.code().message());
+				std::rethrow_if_nested(e);
+			}
+			catch (...) {
+				log_exception(++level);
+			}
+		}
+		catch (const std::exception& e)
+		{
+			try {
+				log(severity_level_t::error, std::string(level, ' ')
+					+ "exception: "s + e.what());
+				std::rethrow_if_nested(e);
+			}
+			catch (...) {
+				log_exception(++level);
+			}
+		}
+		catch (...)
+		{
+			log(severity_level_t::error, std::string(level, ' ') + "unknown exception"s);
+		}
+	}
+
+	inline void log_exception(std::string const& message) const noexcept
+	{
+		assert(!message.empty());
+		log(severity_level_t::error, message);
+		log_exception(1);
+	}
+
+	inline void open()
+	{
+		try
+		{
+			finish_ = false;
+			open_connection_();
+		}
+		catch (...)
+		{
+			std::throw_with_nested(std::runtime_error("async_amqp::channels_t::open"));
+		}
+	}
 
 	inline void close()
 	{
-		finish_ = true;
-		close_connection_();
+		try
+		{
+			finish_ = true;
+			close_connection_();
+		}
+		catch (...)
+		{
+			std::throw_with_nested(std::runtime_error("async_amqp::channels_t::close"));
+		}
 	}
 
 	inline void publish(boost::json::object&& obj)
 	{
-		io::post(io_context_,
-			[this, obj = std::move(obj)]() mutable noexcept { on_publish_(std::move(obj)); });
+		try
+		{
+			io::post(io_context_,
+				[this, obj = std::move(obj)]() mutable noexcept { on_publish_(std::move(obj)); });
+		}
+		catch (...)
+		{
+			std::throw_with_nested(std::runtime_error("async_amqp::channels_t::publish"));
+		}
 	}
 
-	inline void on_received(received_handler_t handler) { received_handler_ = handler; }
+	inline void on_received(received_handler_t handler) noexcept { received_handler_ = handler; }
 
 private:
 
-	void open_connection_() noexcept
+	void open_connection_()
 	{
 		using namespace std::placeholders;
 		try
@@ -87,29 +177,49 @@ private:
 		}
 		catch (...)
 		{
-			log(severity_level_t::error, "async_amqp::channels_t::open: Exception"s);
+			std::throw_with_nested(std::runtime_error("async_amqp::channels_t::open_connection_"s));
 		}
 	}
 
-	inline void close_connection_() 
+	inline void close_connection_()
 	{
-		if (out_reliable_o_) { out_reliable_o_->close(); }
-		if (out_channel_o_) { out_channel_o_->close(); }
-		if (in_channel_o_) { in_channel_o_->close(); }
-		if (connection_o_) { connection_o_->close(); }
+		try
+		{
+			if (out_reliable_o_) { out_reliable_o_->close(); }
+			if (out_channel_o_) { out_channel_o_->close(); }
+			if (in_channel_o_) { in_channel_o_->close(); }
+			if (connection_o_) { connection_o_->close(); }
+		}
+		catch (...)
+		{
+			std::throw_with_nested(std::runtime_error("async_amqp::channels_t::close_connection_"s));
+		}
 	}
 
 	void do_wait_for_reconnection_()
 	{
-		reconnection_timer_.expires_after(5s);
-		reconnection_timer_.async_wait([&](boost::system::error_code const& ec)
-			{
-				if (!ec)
+		try
+		{
+			reconnection_timer_.expires_after(5s);
+			reconnection_timer_.async_wait(
+				/*on_wait_for_reconnection_*/[this](boost::system::error_code const& ec) noexcept
 				{
-					if (!connection_o_ && !finish_) { open_connection_(); }
-					do_wait_for_reconnection_();
-				}
-			});
+					try
+					{
+						if (ec) { throw std::system_error(ec); }
+						if (!connection_o_ && !finish_) { open_connection_(); }
+						do_wait_for_reconnection_();
+					}
+					catch (...)
+					{
+						log_exception("async_amqp::channels_t::on_wait_for_reconnection_"s);
+					}
+				});
+		}
+		catch (...)
+		{
+			std::throw_with_nested(std::runtime_error("async_amqp::channels_t::do_wait_for_reconnection_"s));
+		}
 	}
 
 	void open_out_channel_()
@@ -180,52 +290,91 @@ private:
 		}
 		catch (...)
 		{
-			connection.error("async_amqp::channels_t::on_ready_: Exception"s);
+			log_exception("async_amqp::channels_t::on_ready_"s);
 		}
 	}
 
-	void on_connection_error_(connection_t& connection, std::string message)
+	void on_connection_error_(connection_t& connection, std::string message) noexcept
 	{
-		connection.log(severity_level_t::error,
-			"async_amqp::channels_t::on_connection_error_: "s + message);
-		close_connection_();
+		try
+		{
+			connection.log(severity_level_t::error, "async_amqp::channels_t::on_connection_error_"s);
+			connection.log(severity_level_t::error, " "s + message);
+			close_connection_();
+		}
+		catch (...)
+		{
+			log_exception("async_amqp::channels_t::on_connection_error_"s);
+		}
 	}
 
-	void on_connection_closed_(connection_t& connection)
+	void on_connection_closed_(connection_t& connection) noexcept
 	{
-		connection.log(severity_level_t::info,
-			"async_amqp::channels_t::on_connection_closed_: Connection closed"s);
-		connection_o_.reset();
+		try
+		{
+			connection.log(severity_level_t::info, "async_amqp::channels_t::on_connection_closed_"s);
+			connection.log(severity_level_t::info, " Connection closed"s);
+			connection_o_.reset();
+		}
+		catch (...)
+		{
+			log_exception("async_amqp::channels_t::on_connection_closed_"s);
+		}
 	}
 
-	void on_channel_error_(char const* message)
+	void on_channel_error_(char const* message) noexcept
 	{
-		log(severity_level_t::error, 
-			"async_amqp::channels_t::on_channel_error_: "s + message);
-		close_connection_();
+		try
+		{
+			log(severity_level_t::error, "async_amqp::channels_t::on_channel_error_"s);
+			log(severity_level_t::error, " "s + message);
+			close_connection_();
+		}
+		catch (...)
+		{
+			log_exception("async_amqp::channels_t::on_channel_error_"s);
+		}
 	}
 
-	void on_publish_ack_(std::string buffer)
+	void on_publish_ack_(std::string buffer) noexcept
 	{
-		log(severity_level_t::debug,
-			"async_amqp::channels_t::on_publish_ack_: "s
-			+ exchange_ + ":"s + route_ + " <- "s + buffer);
+		try
+		{
+			log(severity_level_t::debug, "async_amqp::channels_t::on_publish_ack_"s);
+			log(severity_level_t::debug, " "s + exchange_ + ":"s + route_ + " <- "s + buffer);
+		}
+		catch (...)
+		{
+			log_exception("async_amqp::channels_t::on_publish_ack_"s);
+		}
 	}
 
-	void on_publish_lost_(std::string buffer)
+	void on_publish_lost_(std::string buffer) noexcept
 	{
-		log(severity_level_t::error,
-			"async_amqp::channels_t::on_publish_lost_: "s
-			+ exchange_ + ":"s + route_ + " <- "s + buffer);
+		try
+		{
+			log(severity_level_t::error, "async_amqp::channels_t::on_publish_lost_"s);
+			log(severity_level_t::error, " "s + exchange_ + ":"s + route_ + " <- "s + buffer);
+		}
+		catch (...)
+		{
+			log_exception("async_amqp::channels_t::on_publish_lost_"s);
+		}
 	}
 
-	void on_publish_error_(std::string buffer, char const* message)
+	void on_publish_error_(std::string buffer, char const* message) noexcept
 	{
-		log(severity_level_t::error,
-			"async_amqp::channels_t::on_publish_error_: "s
-			+ message + ": "s
-			+ exchange_ + ":"s + route_ + " <- "s + buffer);
-		close_connection_();
+		try
+		{
+			log(severity_level_t::error, "async_amqp::channels_t::on_publish_error_"s);
+			log(severity_level_t::error, " "s + message);
+			log(severity_level_t::error, "  "s + exchange_ + ":"s + route_ + " <- "s + buffer);
+			close_connection_();
+		}
+		catch (...)
+		{
+			log_exception("async_amqp::channels_t::on_publish_error_"s);
+		}
 	}
 
 	void on_publish_(boost::json::object&& obj) noexcept
@@ -250,7 +399,7 @@ private:
 		}
 		catch (...)
 		{
-			log(severity_level_t::error, "async_amqp::channels_t::on_publish_: Exception"s);
+			log_exception("async_amqp::channels_t::on_publish_"s);
 		}
 	}
 
@@ -262,9 +411,8 @@ private:
 			in_channel_o_->ack(delivery_tag);
 			std::string message_str(message.body(), message.bodySize());
 
-			log(severity_level_t::debug,
-				"async_amqp::channels_t::on_received_: "
-				+ exchange_ + ":"s + queue_ + " -> "s + message_str);
+			log(severity_level_t::debug, "async_amqp::channels_t::on_received_");
+			log(severity_level_t::debug, " "s + exchange_ + ":"s + queue_ + " -> "s + message_str);
 
 			if (received_handler_ != nullptr)
 			{
@@ -274,7 +422,7 @@ private:
 		}
 		catch (...)
 		{
-			log(severity_level_t::error, "async_amqp::channels_t::on_received_: Exception"s);
+			log_exception("async_amqp::channels_t::on_received_"s);
 		}
 	}
 

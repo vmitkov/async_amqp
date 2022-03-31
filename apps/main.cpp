@@ -57,7 +57,7 @@ int main()
 	signals.async_wait([&](auto, auto)
 		{
 			std::clog << "Signal received" << std::endl;
-			channels.close();
+			io_context.stop();
 		});
 
 	io::steady_timer timer(io_context);
