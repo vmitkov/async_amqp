@@ -13,6 +13,7 @@
 #include <optional>
 #include <bitset>
 #include <memory>
+#include <functional>
 
 namespace async_amqp
 {
@@ -22,8 +23,6 @@ namespace io = boost::asio;
 namespace ip = io::ip;
 using tcp = ip::tcp;
 using resolver = tcp::resolver;
-using error_code = boost::system::error_code;
-using work_guard_t = io::executor_work_guard<io::io_context::executor_type>;
 
 using namespace std::literals;
 
@@ -74,13 +73,13 @@ public:
 	using closed_handler_t = std::function<void(connection_t& self)>;
 
 public:
-	connection_t(io::io_context& io_context, AMQP::Address&& address, log_handler_t log_handler) :
-		//work_guard_(io_context.get_executor()),
+	template<typename LogHandler>
+	connection_t(io::io_context& io_context, AMQP::Address&& address, LogHandler&& log_handler) :
 		io_context_(io_context),
 		address_(std::move(address)),
 		resolver_(io_context),
 		socket_(io_context),
-		log_handler_(log_handler)
+		log_handler_(std::move(log_handler))
 	{
 		log(severity_level_t::debug, "async_amqp::connection_t::connection_t");
 	}
@@ -118,7 +117,7 @@ public:
 				log_exception(++level);
 			}
 		}
-		catch (const boost::system::system_error& e)
+		catch (const sys::system_error& e)
 		{
 			try {
 				log(severity_level_t::error, std::string(level, ' ')
@@ -219,9 +218,14 @@ public:
 
 	AMQP::Connection* amqp_connection() noexcept { return connection_o_ ? &(*connection_o_) : nullptr; }
 
-	inline void on_ready(ready_handler_t handler) noexcept { ready_handler_ = handler; }
-	inline void on_error(error_handler_t handler) noexcept { error_handler_ = handler; }
-	inline void on_closed(closed_handler_t handler) noexcept { closed_handler_ = handler; }
+	template<typename ReadyHandler>
+	inline void on_ready(ReadyHandler&& handler) noexcept { ready_handler_ = std::move(handler); }
+
+	template<typename ErrorHandler>
+	inline void on_error(ErrorHandler&& handler) noexcept { error_handler_ = std::move(handler); }
+
+	template<typename ClosedHandler>
+	inline void on_closed(ClosedHandler&& handler) noexcept { closed_handler_ = std::move(handler); }
 
 private:
 	void do_resolve_()
@@ -334,7 +338,7 @@ private:
 		}
 	}
 
-	void on_write_(boost::system::error_code ec) noexcept
+	void on_write_(sys::error_code ec) noexcept
 	{
 		try
 		{
@@ -432,7 +436,7 @@ private:
 		{
 			if (socket_.is_open())
 			{
-				error_code error;
+				sys::error_code error;
 				socket_.close(error);
 				do_wait_for_closed_();
 			}

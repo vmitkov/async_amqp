@@ -37,5 +37,5 @@ include_directories(external)
 #add_subdirectory (src)
 add_subdirectory (apps)
 
-#enable_testing()
-#add_subdirectory (tests)
+enable_testing()
+add_subdirectory (tests)

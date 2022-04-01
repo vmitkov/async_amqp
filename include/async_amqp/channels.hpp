@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cassert>
 #include <atomic>
+#include <functional>
 
 namespace async_amqp
 {
@@ -25,20 +26,22 @@ public:
 
 	using log_handler_t = std::function<void(severity_level_t severity_level, std::string const& message)>;
 	using received_handler_t = std::function<void(channels_t&, boost::json::object&&)>;
+	using ready_handler_t = std::function<void(channels_t&)>;
 
+	template<typename LogHandler>
 	channels_t(
 		io::io_context& io_context,
 		std::string const& url,
 		std::string const& exchange,
 		std::string const& queue,
 		std::string const& route,
-		log_handler_t log_handler = nullptr)
+		LogHandler&& log_handler)
 		: io_context_(io_context),
 		url_(url),
 		exchange_(exchange),
 		queue_(queue),
 		route_(route),
-		log_handler_(log_handler),
+		log_handler_(std::move(log_handler)),
 		reconnection_timer_(io_context_)
 	{
 		try
@@ -159,7 +162,11 @@ public:
 		}
 	}
 
-	inline void on_received(received_handler_t handler) noexcept { received_handler_ = handler; }
+	template<typename ReceivedHandler>
+	inline void on_received(ReceivedHandler&& handler) noexcept { received_handler_ = std::move(handler); }
+
+	template<typename ReadyHandler>
+	inline void on_ready(ReadyHandler&& handler) noexcept { ready_handler_ = std::move(handler); }
 
 private:
 
@@ -168,7 +175,8 @@ private:
 		using namespace std::placeholders;
 		try
 		{
-			connection_o_.emplace(io_context_, url_, log_handler_);
+			connection_o_.emplace(
+				io_context_, url_, std::bind(&channels_t::log, this, _1, _2));
 
 			connection_o_->on_ready(std::bind(&channels_t::on_connection_ready_, this, _1));
 			connection_o_->on_error(std::bind(&channels_t::on_connection_error_, this, _1, _2));
@@ -200,7 +208,7 @@ private:
 	{
 		try
 		{
-			reconnection_timer_.expires_after(5s);
+			reconnection_timer_.expires_after(io::chrono::seconds(5));
 			reconnection_timer_.async_wait(
 				/*on_wait_for_reconnection_*/[this](boost::system::error_code const& ec) noexcept
 				{
@@ -237,6 +245,7 @@ private:
 
 			out_channel_o_.emplace(connection_p);
 			out_channel_o_->onError(std::bind(&channels_t::on_channel_error_, this, _1));
+			out_channel_o_->onReady(std::bind(&channels_t::on_channel_ready_, this));
 
 			out_channel_o_->declareExchange(exchange_, AMQP::direct);
 
@@ -244,6 +253,7 @@ private:
 			out_channel_o_->bindQueue(exchange_, route_, route_);
 
 			out_reliable_o_.emplace(*out_channel_o_);
+			out_reliable_o_->onError(std::bind(&channels_t::on_channel_error_, this, _1));
 		}
 		catch (...)
 		{
@@ -319,6 +329,18 @@ private:
 		catch (...)
 		{
 			log_exception("async_amqp::channels_t::on_connection_closed_"s);
+		}
+	}
+
+	void on_channel_ready_() noexcept
+	{
+		try
+		{
+			if (ready_handler_ != nullptr) { ready_handler_(*this); }
+		}
+		catch (...)
+		{
+			log_exception("async_amqp::channels_t::on_channel_ready_"s);
 		}
 	}
 
@@ -434,6 +456,7 @@ private:
 	std::string const route_;
 	log_handler_t log_handler_{ nullptr };
 	received_handler_t received_handler_{ nullptr };
+	ready_handler_t ready_handler_{ nullptr };
 
 	io::steady_timer reconnection_timer_;
 
