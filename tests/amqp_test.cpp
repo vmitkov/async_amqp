@@ -99,11 +99,14 @@ BOOST_AUTO_TEST_CASE(async_amqp_test)
 	channels.on_received(
 		[&](channels_t&, json::object&& object)
 		{
-			++msg_receiver_counter;
-			BOOST_CHECK(object == json_msg_sample);
-			if (msg_sender_counter == 20 && msg_receiver_counter >= 20)
+			if (msg_sender_counter > 0)
 			{
-				io_context.post([&]() { io_context.stop(); });
+				++msg_receiver_counter;
+				BOOST_CHECK(object == json_msg_sample);
+				if (msg_receiver_counter == 20)
+				{
+					io_context.post([&]() { io_context.stop(); });
+				}
 			}
 		});
 
