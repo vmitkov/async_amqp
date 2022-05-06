@@ -64,30 +64,14 @@ inline std::ostream& operator<<(std::ostream& os, severity_level_t severity_leve
 	}
 }
 
-class connection_t : public AMQP::ConnectionHandler
+class log_t
 {
 public:
 	using log_handler_t = std::function<void(severity_level_t severity_level, std::string const& message)>;
-	using ready_handler_t = std::function<void(connection_t& self)>;
-	using error_handler_t = std::function<void(connection_t& self, std::string const& message)>;
-	using closed_handler_t = std::function<void(connection_t& self)>;
 
-public:
 	template<typename LogHandler>
-	connection_t(io::io_context& io_context, AMQP::Address&& address, LogHandler&& log_handler) :
-		io_context_(io_context),
-		address_(std::move(address)),
-		resolver_(io_context),
-		socket_(io_context),
-		log_handler_(std::move(log_handler))
-	{
-		log(severity_level_t::debug, "async_amqp::connection_t::connection_t");
-	}
-
-	virtual ~connection_t() noexcept
-	{
-		log(severity_level_t::debug, "async_amqp::connection_t::~connection_t");
-	}
+	log_t(LogHandler&& log_handler) : log_handler_(std::move(log_handler))
+	{}
 
 	inline void log(severity_level_t severity_level, std::string const& message) const noexcept
 	{
@@ -150,6 +134,34 @@ public:
 		assert(!message.empty());
 		log(severity_level_t::error, message);
 		log_exception(1);
+	}
+
+private:
+	log_handler_t log_handler_{ nullptr };
+};
+
+class connection_t : public AMQP::ConnectionHandler, public log_t
+{
+public:
+	using ready_handler_t = std::function<void(connection_t& self)>;
+	using error_handler_t = std::function<void(connection_t& self, std::string const& message)>;
+	using closed_handler_t = std::function<void(connection_t& self)>;
+
+public:
+	template<typename LogHandler>
+	connection_t(io::io_context& io_context, AMQP::Address&& address, LogHandler&& log_handler) :
+		io_context_(io_context),
+		address_(std::move(address)),
+		resolver_(io_context),
+		socket_(io_context),
+		log_t(std::move(log_handler))
+	{
+		log(severity_level_t::debug, "async_amqp::connection_t::connection_t");
+	}
+
+	virtual ~connection_t() noexcept
+	{
+		log(severity_level_t::debug, "async_amqp::connection_t::~connection_t");
 	}
 
 	inline void error(std::string const& message)
@@ -611,7 +623,6 @@ private:
 	std::vector<char> parse_buffer_;
 	std::deque<std::vector<char>> output_buffers_;
 
-	log_handler_t log_handler_{ nullptr };
 	ready_handler_t ready_handler_{ nullptr };
 	error_handler_t error_handler_{ nullptr };
 	closed_handler_t closed_handler_{ nullptr };

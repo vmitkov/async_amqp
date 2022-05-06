@@ -32,9 +32,9 @@ void periodic_publish(io::steady_timer& timer, async_amqp::channels_t& channels)
 int main()
 {
 	std::string const url{ "amqp://127.0.0.1:5672/"s };
-	std::string const exchange{ "X3"s };
-	std::string const queue{ "streams"s };
-	std::string const route{ "calls"s };
+	std::string const exchange{ "test_exchange"s };
+	std::string const queue{ "test_queue"s };
+	std::string const route{ "test_queue"s };
 
 	io::io_context io_context;
 

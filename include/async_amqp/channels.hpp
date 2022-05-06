@@ -20,11 +20,10 @@ namespace io = boost::asio;
 
 using namespace std::literals;
 
-class channels_t
+class channels_t : public log_t
 {
 public:
 
-	using log_handler_t = std::function<void(severity_level_t severity_level, std::string const& message)>;
 	using received_handler_t = std::function<void(channels_t&, boost::json::object&&)>;
 	using ready_handler_t = std::function<void(channels_t&)>;
 
@@ -41,7 +40,7 @@ public:
 		exchange_(exchange),
 		queue_(queue),
 		route_(route),
-		log_handler_(std::move(log_handler)),
+		log_t(std::move(log_handler)),
 		reconnection_timer_(io_context_)
 	{
 		try
@@ -58,69 +57,6 @@ public:
 	~channels_t() noexcept
 	{
 		log(severity_level_t::debug, "async_amqp::channels_t::~channels_t");
-	}
-
-	inline void log(severity_level_t severity_level, std::string const& message) const noexcept
-	{
-		try
-		{
-			if (log_handler_ != nullptr) { log_handler_(severity_level, message); }
-		}
-		catch (...)
-		{
-		}
-	}
-
-	inline void log_exception(int level = 0) const noexcept
-	{
-		try
-		{
-			throw;
-		}
-		catch (const std::system_error& e)
-		{
-			try {
-				log(severity_level_t::error, std::string(level, ' ')
-					+ "system_error: "s + e.what() + ", message: "s + e.code().message());
-				std::rethrow_if_nested(e);
-			}
-			catch (...) {
-				log_exception(++level);
-			}
-		}
-		catch (const boost::system::system_error& e)
-		{
-			try {
-				log(severity_level_t::error, std::string(level, ' ')
-					+ "system_error: "s + e.what() + ", message: "s + e.code().message());
-				std::rethrow_if_nested(e);
-			}
-			catch (...) {
-				log_exception(++level);
-			}
-		}
-		catch (const std::exception& e)
-		{
-			try {
-				log(severity_level_t::error, std::string(level, ' ')
-					+ "exception: "s + e.what());
-				std::rethrow_if_nested(e);
-			}
-			catch (...) {
-				log_exception(++level);
-			}
-		}
-		catch (...)
-		{
-			log(severity_level_t::error, std::string(level, ' ') + "unknown exception"s);
-		}
-	}
-
-	inline void log_exception(std::string const& message) const noexcept
-	{
-		assert(!message.empty());
-		log(severity_level_t::error, message);
-		log_exception(1);
 	}
 
 	inline void open()
@@ -308,8 +244,8 @@ private:
 	{
 		try
 		{
-			connection.log(severity_level_t::error, "async_amqp::channels_t::on_connection_error_"s);
-			connection.log(severity_level_t::error, " "s + message);
+			connection.log(severity_level_t::error,
+				"async_amqp::channels_t::on_connection_error_: "s + message);
 			close_connection_();
 		}
 		catch (...)
@@ -322,8 +258,7 @@ private:
 	{
 		try
 		{
-			connection.log(severity_level_t::info, "async_amqp::channels_t::on_connection_closed_"s);
-			connection.log(severity_level_t::info, " Connection closed"s);
+			connection.log(severity_level_t::info, "async_amqp::channels_t::on_connection_closed_: Connection closed"s);
 			connection_o_.reset();
 		}
 		catch (...)
@@ -348,8 +283,8 @@ private:
 	{
 		try
 		{
-			log(severity_level_t::error, "async_amqp::channels_t::on_channel_error_"s);
-			log(severity_level_t::error, " "s + message);
+			log(severity_level_t::error,
+				"async_amqp::channels_t::on_channel_error_: "s + message);
 			close_connection_();
 		}
 		catch (...)
@@ -362,8 +297,9 @@ private:
 	{
 		try
 		{
-			log(severity_level_t::debug, "async_amqp::channels_t::on_publish_ack_"s);
-			log(severity_level_t::debug, " "s + exchange_ + ":"s + route_ + " <- "s + buffer);
+			log(severity_level_t::trace,
+				"async_amqp::channels_t::on_publish_ack_: "s
+				+ exchange_ + ":"s + route_ + " <- "s + buffer);
 		}
 		catch (...)
 		{
@@ -375,8 +311,9 @@ private:
 	{
 		try
 		{
-			log(severity_level_t::error, "async_amqp::channels_t::on_publish_lost_"s);
-			log(severity_level_t::error, " "s + exchange_ + ":"s + route_ + " <- "s + buffer);
+			log(severity_level_t::error,
+				"async_amqp::channels_t::on_publish_lost_: "s
+				+ exchange_ + ":"s + route_ + " <- "s + buffer);
 		}
 		catch (...)
 		{
@@ -388,9 +325,9 @@ private:
 	{
 		try
 		{
-			log(severity_level_t::error, "async_amqp::channels_t::on_publish_error_"s);
-			log(severity_level_t::error, " "s + message);
-			log(severity_level_t::error, "  "s + exchange_ + ":"s + route_ + " <- "s + buffer);
+			log(severity_level_t::error,
+				"async_amqp::channels_t::on_publish_error_: "s + message
+				+ ", "s + exchange_ + ":"s + route_ + " <- "s + buffer);
 			close_connection_();
 		}
 		catch (...)
@@ -433,8 +370,9 @@ private:
 			in_channel_o_->ack(delivery_tag);
 			std::string message_str(message.body(), message.bodySize());
 
-			log(severity_level_t::debug, "async_amqp::channels_t::on_received_");
-			log(severity_level_t::debug, " "s + exchange_ + ":"s + queue_ + " -> "s + message_str);
+			log(severity_level_t::trace,
+				"async_amqp::channels_t::on_received_: "s
+				+ exchange_ + ":"s + queue_ + " -> "s + message_str);
 
 			if (received_handler_ != nullptr)
 			{
@@ -454,7 +392,6 @@ private:
 	std::string const exchange_;
 	std::string const queue_;
 	std::string const route_;
-	log_handler_t log_handler_{ nullptr };
 	received_handler_t received_handler_{ nullptr };
 	ready_handler_t ready_handler_{ nullptr };
 

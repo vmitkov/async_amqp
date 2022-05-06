@@ -44,9 +44,9 @@ BOOST_AUTO_TEST_CASE(async_amqp_test)
 	struct options_t
 	{
 		std::string amqp_url{ "amqp://127.0.0.1:5672/"s };
-		std::string amqp_exchange{ "X3"s };
-		std::string amqp_queue{ "calls"s };
-		std::string amqp_route{ "calls"s };
+		std::string amqp_exchange{ "test_exchange"s };
+		std::string amqp_queue{ "test_queue"s };
+		std::string amqp_route{ "test_queue"s };
 	};
 
 	const json::object json_msg_sample{ {
@@ -105,7 +105,7 @@ BOOST_AUTO_TEST_CASE(async_amqp_test)
 				BOOST_CHECK(object == json_msg_sample);
 				if (msg_receiver_counter == 20)
 				{
-					io_context.post([&]() { io_context.stop(); });
+					io::post(io_context, [&]() { io_context.stop(); });
 				}
 			}
 		});
