@@ -3,7 +3,7 @@
 #
 cmake_minimum_required (VERSION 3.12)
 
-project(async_amqp VERSION "0.0.1")
+project(async_amqp VERSION "1.0.0")
 
 configure_file(config.h.in ${CMAKE_BINARY_DIR}/generated/config.h)
 include_directories(${CMAKE_BINARY_DIR}/generated/)
