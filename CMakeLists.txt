@@ -5,9 +5,6 @@ cmake_minimum_required (VERSION 3.12)
 
 project(async_amqp VERSION "1.0.0")
 
-configure_file(config.h.in ${CMAKE_BINARY_DIR}/generated/config.h)
-include_directories(${CMAKE_BINARY_DIR}/generated/)
-
 add_subdirectory(external)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -31,7 +28,6 @@ if (WIN32)
 endif ()
 
 include_directories(include)
-include_directories(external)
 
 # Include sub-projects.
 #add_subdirectory (src)
