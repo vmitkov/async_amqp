@@ -1,3 +1,7 @@
+/**
+ *  @author Viktor Mitkov <vmitkov@mail.ru>
+ */
+
 #pragma once
 
 #include "connection.hpp"
@@ -6,13 +10,13 @@
 #include <boost/asio.hpp>
 #include <boost/json.hpp>
 
-#include <string>
-#include <optional>
-#include <cstddef>
-#include <cassert>
 #include <atomic>
+#include <cassert>
+#include <cstddef>
 #include <functional>
 #include <map>
+#include <optional>
+#include <string>
 
 namespace async_amqp
 {
@@ -25,7 +29,7 @@ using namespace std::literals;
 namespace detail
 {
 
-template<typename Parent>
+template <typename Parent>
 class channel_t_
 {
 public:
@@ -35,10 +39,10 @@ public:
         std::string const& queue,
         std::string const& routing_key = ""s)
         : parent_(parent),
-        exchange_(exchange),
-        queue_(queue),
-        routing_key_(routing_key),
-        channel_name_(exchange_ + ':' + queue_)
+          exchange_(exchange),
+          queue_(queue),
+          routing_key_(routing_key),
+          channel_name_(exchange_ + ':' + queue_)
     {
         parent_.log(severity_level_t::debug,
             "async_amqp::detail::channel_t_::channel_t_: " + channel_name_);
@@ -50,12 +54,36 @@ public:
             "async_amqp::detail::channel_t_::~channel_t_: " + channel_name_);
     }
 
-    channel_t_& exchange_type(AMQP::ExchangeType type) { exchange_type_ = type; return *this; }
-    channel_t_& exchange_flags(int flags) { exchange_flags_ = flags; return *this; }
-    channel_t_& exchange_arguments(AMQP::Table const& arguments) { exchange_arguments_ = arguments; return *this; }
-    channel_t_& queue_flags(int flags) { queue_flags_ = flags; return *this; }
-    channel_t_& queue_arguments(AMQP::Table const& arguments) { queue_arguments_ = arguments; return *this; }
-    channel_t_& bind_arguments(AMQP::Table const& arguments) { bind_arguments_ = arguments; return *this; }
+    channel_t_& exchange_type(AMQP::ExchangeType type)
+    {
+        exchange_type_ = type;
+        return *this;
+    }
+    channel_t_& exchange_flags(int flags)
+    {
+        exchange_flags_ = flags;
+        return *this;
+    }
+    channel_t_& exchange_arguments(AMQP::Table const& arguments)
+    {
+        exchange_arguments_ = arguments;
+        return *this;
+    }
+    channel_t_& queue_flags(int flags)
+    {
+        queue_flags_ = flags;
+        return *this;
+    }
+    channel_t_& queue_arguments(AMQP::Table const& arguments)
+    {
+        queue_arguments_ = arguments;
+        return *this;
+    }
+    channel_t_& bind_arguments(AMQP::Table const& arguments)
+    {
+        bind_arguments_ = arguments;
+        return *this;
+    }
 
     void open(AMQP::Connection* connection_p)
     {
@@ -95,7 +123,11 @@ public:
     {
         try
         {
-            if (channel_o_) { channel_o_->close(); channel_o_.reset(); }
+            if (channel_o_)
+            {
+                channel_o_->close();
+                channel_o_.reset();
+            }
         }
         catch (...)
         {
@@ -111,7 +143,7 @@ protected:
         {
             parent_.log(severity_level_t::error,
                 "async_amqp::detail::channel_t_::on_channel_error_: "s
-                + channel_name_ + ", "s + message);
+                    + channel_name_ + ", "s + message);
             parent_.close_connection_();
         }
         catch (...)
@@ -139,21 +171,22 @@ protected:
     std::optional<AMQP::Channel> channel_o_;
 };
 
-template<typename Parent>
+template <typename Parent>
 class in_channel_t_ : public channel_t_<Parent>
 {
     using base_t_ = channel_t_<Parent>;
-public:
-    using received_handler_t = std::function<void(in_channel_t_&, json::value&&)>;
 
-    template<typename ReceivedHandler>
+public:
+    using received_handler_t = std::function<void(in_channel_t_&, json::value)>;
+
+    template <typename ReceivedHandler>
     in_channel_t_(
         Parent& parent,
         std::string const& exchange_name,
         std::string const& queue_name,
-        ReceivedHandler&& handler)
+        ReceivedHandler handler)
         : base_t_(parent, exchange_name, queue_name),
-        received_handler_(std::move(handler))
+          received_handler_(std::move(handler))
     {
     }
 
@@ -165,8 +198,7 @@ public:
             assert(connection_p != nullptr);
 
             base_t_::open(connection_p);
-            base_t_::channel_o_->consume(base_t_::queue_).onReceived(
-                std::bind(&in_channel_t_::on_received_, this, _1, _2, _3));
+            base_t_::channel_o_->consume(base_t_::queue_).onReceived(std::bind(&in_channel_t_::on_received_, this, _1, _2, _3));
         }
         catch (...)
         {
@@ -188,7 +220,7 @@ private:
 
             base_t_::parent_.log(severity_level_t::trace,
                 "async_amqp::detail::in_channel_t_::on_received_: "s
-                + base_t_::channel_name_ + ", "s + message_str);
+                    + base_t_::channel_name_ + ", "s + message_str);
 
             if (received_handler_ != nullptr)
             {
@@ -206,22 +238,23 @@ private:
     received_handler_t received_handler_{nullptr};
 };
 
-template<typename Parent>
+template <typename Parent>
 class out_channel_t_ : public channel_t_<Parent>
 {
     using base_t_ = channel_t_<Parent>;
+
 public:
     using ready_handler_t = std::function<void(out_channel_t_&)>;
 
-    template<typename ReadyHandler>
+    template <typename ReadyHandler>
     out_channel_t_(
         Parent& parent,
         std::string const& exchange_name,
         std::string const& queue_name,
         std::string const& route_name,
-        ReadyHandler&& handler)
+        ReadyHandler handler)
         : base_t_(parent, exchange_name, queue_name, route_name),
-        ready_handler_(std::move(handler))
+          ready_handler_(std::move(handler))
     {
     }
 
@@ -249,7 +282,11 @@ public:
     {
         try
         {
-            if (reliable_o_) { reliable_o_->close(); reliable_o_.reset(); }
+            if (reliable_o_)
+            {
+                reliable_o_->close();
+                reliable_o_.reset();
+            }
             base_t_::close();
         }
         catch (...)
@@ -259,12 +296,13 @@ public:
         }
     }
 
-    inline void publish(json::value&& value)
+    inline void publish(json::value value)
     {
         try
         {
             io::post(base_t_::parent_.io_context_,
-                [this, value = std::move(value)]() mutable noexcept { on_publish_(std::move(value)); });
+                [this, value = std::move(value)]() mutable noexcept
+                { on_publish_(std::move(value)); });
         }
         catch (...)
         {
@@ -298,7 +336,7 @@ private:
         {
             base_t_::parent_.log(severity_level_t::trace,
                 "async_amqp::detail::out_channel_t_::on_publish_ack_: "s
-                + base_t_::channel_name_ + ", "s + buffer);
+                    + base_t_::channel_name_ + ", "s + buffer);
         }
         catch (...)
         {
@@ -313,7 +351,7 @@ private:
         {
             base_t_::parent_.log(severity_level_t::error,
                 "async_amqp::detail::out_channel_t_::on_publish_lost_: "s
-                + base_t_::channel_name_ + ", "s + buffer);
+                    + base_t_::channel_name_ + ", "s + buffer);
         }
         catch (...)
         {
@@ -328,7 +366,7 @@ private:
         {
             base_t_::parent_.log(severity_level_t::error,
                 "async_amqp::detail::out_channel_t_::on_publish_error_: "s + message
-                + ", "s + base_t_::channel_name_ + ", "s + buffer);
+                    + ", "s + base_t_::channel_name_ + ", "s + buffer);
             base_t_::parent_.close_connection_();
         }
         catch (...)
@@ -338,7 +376,7 @@ private:
         }
     }
 
-    void on_publish_(json::value&& value) noexcept
+    void on_publish_(json::value value) noexcept
     {
         using namespace std::placeholders;
         try
@@ -374,21 +412,20 @@ private:
 class channels_t : public log_t
 {
 public:
-
-    using received_handler_t = std::function<void(detail::in_channel_t_<channels_t>&, json::value&&)>;
+    using received_handler_t = std::function<void(detail::in_channel_t_<channels_t>&, json::value)>;
     using ready_handler_t = std::function<void(detail::out_channel_t_<channels_t>&)>;
     using in_channels_t = std::map<std::string, detail::in_channel_t_<channels_t>>;
     using out_channels_t = std::map<std::string, detail::out_channel_t_<channels_t>>;
 
-    template<typename LogHandler>
+    template <typename LogHandler>
     channels_t(
         io::io_context& io_context,
         std::string const& url,
-        LogHandler&& log_handler)
+        LogHandler log_handler)
         : io_context_(io_context),
-        url_(url),
-        log_t(std::move(log_handler)),
-        reconnection_timer_(io_context_)
+          url_(url),
+          log_t(std::move(log_handler)),
+          reconnection_timer_(io_context_)
     {
         try
         {
@@ -432,7 +469,7 @@ public:
         }
     }
 
-    inline void publish(std::string const& name, json::value&& value)
+    inline void publish(std::string const& name, json::value value)
     {
         try
         {
@@ -452,36 +489,36 @@ public:
         }
     }
 
-    template<typename Name, typename ReceivedHandler>
+    template <typename Name, typename ReceivedHandler>
     auto add_in_channel(
         Name&& name,
         std::string const& exchange,
         std::string const& queue,
-        ReceivedHandler&& handler)
+        ReceivedHandler handler)
     {
         return in_channels_.try_emplace(
             std::forward<Name>(name), *this, exchange, queue, std::move(handler));
     }
 
-    template<typename Name, typename ReadyHandler>
+    template <typename Name, typename ReadyHandler>
     auto add_out_channel(
         Name&& name,
         std::string const& exchange,
         std::string const& queue,
         std::string const& routing_key,
-        ReadyHandler&& handler)
+        ReadyHandler handler)
     {
         return out_channels_.try_emplace(
             std::forward<Name>(name), *this, exchange, queue, routing_key, std::move(handler));
     }
-    
-    template<typename Parent>
+
+    template <typename Parent>
     friend class detail::channel_t_;
 
-    template<typename Parent>
+    template <typename Parent>
     friend class detail::in_channel_t_;
 
-    template<typename Parent>
+    template <typename Parent>
     friend class detail::out_channel_t_;
 
 private:
@@ -508,8 +545,14 @@ private:
     {
         try
         {
-            for (auto& channel : in_channels_) { channel.second.close(); }
-            for (auto& channel : out_channels_) { channel.second.close(); }
+            for (auto& channel : in_channels_)
+            {
+                channel.second.close();
+            }
+            for (auto& channel : out_channels_)
+            {
+                channel.second.close();
+            }
             if (connection_o_) { connection_o_->close(); }
         }
         catch (...)
@@ -524,7 +567,7 @@ private:
         {
             reconnection_timer_.expires_after(io::chrono::seconds(5));
             reconnection_timer_.async_wait(
-                /*on_wait_for_reconnection_*/[this](boost::system::error_code const& ec) noexcept
+                /*on_wait_for_reconnection_*/ [this](boost::system::error_code const& ec) noexcept
                 {
                     try
                     {
@@ -553,8 +596,14 @@ private:
             auto connection_p{connection_o_->amqp_connection()};
             if (connection_p == nullptr) { throw std::runtime_error("AMQP::Connection is closed"); }
 
-            for (auto& channel : in_channels_) { channel.second.open(connection_p); }
-            for (auto& channel : out_channels_) { channel.second.open(connection_p); }
+            for (auto& channel : in_channels_)
+            {
+                channel.second.open(connection_p);
+            }
+            for (auto& channel : out_channels_)
+            {
+                channel.second.open(connection_p);
+            }
         }
         catch (...)
         {

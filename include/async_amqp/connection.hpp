@@ -1,19 +1,23 @@
+/**
+ *  @author Viktor Mitkov <vmitkov@mail.ru>
+ */
+
 #pragma once
 
 #include <amqpcpp.h>
 #include <boost/asio.hpp>
 
-#include <string>
-#include <iostream> 
 #include <algorithm>
-#include <deque>
-#include <vector>
+#include <bitset>
 #include <cassert>
 #include <cstddef>
-#include <optional>
-#include <bitset>
-#include <memory>
+#include <deque>
 #include <functional>
+#include <iostream>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
 
 namespace async_amqp
 {
@@ -26,12 +30,13 @@ using resolver = tcp::resolver;
 
 using namespace std::literals;
 
-template<class F> auto scope_guard(F&& f) {
+template <class F>
+auto scope_guard(F&& f)
+{
     return std::unique_ptr<void, F>{(void*)1, std::forward<F>(f)};
 }
 
 // auto unique = scope_guard([&](void*) {/* cleanup here */});
-
 
 enum class severity_level_t
 {
@@ -69,9 +74,10 @@ class log_t
 public:
     using log_handler_t = std::function<void(severity_level_t severity_level, std::string const& message)>;
 
-    template<typename LogHandler>
-    log_t(LogHandler&& log_handler) : log_handler_(std::move(log_handler))
-    {}
+    template <typename LogHandler>
+    log_t(LogHandler log_handler) : log_handler_(std::move(log_handler))
+    {
+    }
 
     inline void log(severity_level_t severity_level, std::string const& message) const noexcept
     {
@@ -92,34 +98,37 @@ public:
         }
         catch (const std::system_error& e)
         {
-            try {
-                log(severity_level_t::error, std::string(level, ' ')
-                    + "system_error: "s + e.what() + ", message: "s + e.code().message());
+            try
+            {
+                log(severity_level_t::error, std::string(level, ' ') + "system_error: "s + e.what() + ", message: "s + e.code().message());
                 std::rethrow_if_nested(e);
             }
-            catch (...) {
+            catch (...)
+            {
                 log_exception(++level);
             }
         }
         catch (const sys::system_error& e)
         {
-            try {
-                log(severity_level_t::error, std::string(level, ' ')
-                    + "system_error: "s + e.what() + ", message: "s + e.code().message());
+            try
+            {
+                log(severity_level_t::error, std::string(level, ' ') + "system_error: "s + e.what() + ", message: "s + e.code().message());
                 std::rethrow_if_nested(e);
             }
-            catch (...) {
+            catch (...)
+            {
                 log_exception(++level);
             }
         }
         catch (const std::exception& e)
         {
-            try {
-                log(severity_level_t::error, std::string(level, ' ')
-                    + "exception: "s + e.what());
+            try
+            {
+                log(severity_level_t::error, std::string(level, ' ') + "exception: "s + e.what());
                 std::rethrow_if_nested(e);
             }
-            catch (...) {
+            catch (...)
+            {
                 log_exception(++level);
             }
         }
@@ -148,13 +157,16 @@ public:
     using closed_handler_t = std::function<void(connection_t& self)>;
 
 public:
-    template<typename LogHandler>
-    connection_t(io::io_context& io_context, AMQP::Address&& address, LogHandler&& log_handler) :
-        io_context_(io_context),
-        address_(std::move(address)),
-        resolver_(io_context),
-        socket_(io_context),
-        log_t(std::move(log_handler))
+    template <typename LogHandler>
+    connection_t(
+        io::io_context& io_context,
+        AMQP::Address address,
+        LogHandler log_handler)
+        : io_context_(io_context),
+          address_(std::move(address)),
+          resolver_(io_context),
+          socket_(io_context),
+          log_t(std::move(log_handler))
     {
         log(severity_level_t::debug, "async_amqp::connection_t::connection_t");
     }
@@ -182,7 +194,7 @@ public:
         try
         {
             io::post(io_context_,
-                /*on_open_*/[this]() noexcept
+                /*on_open_*/ [this]() noexcept
                 {
                     try
                     {
@@ -205,7 +217,7 @@ public:
         try
         {
             io::post(io_context_,
-                /*on_close_*/[this]() noexcept
+                /*on_close_*/ [this]() noexcept
                 {
                     try
                     {
@@ -230,14 +242,14 @@ public:
 
     AMQP::Connection* amqp_connection() noexcept { return connection_o_ ? &(*connection_o_) : nullptr; }
 
-    template<typename ReadyHandler>
-    inline void on_ready(ReadyHandler&& handler) noexcept { ready_handler_ = std::move(handler); }
+    template <typename ReadyHandler>
+    inline void on_ready(ReadyHandler handler) noexcept { ready_handler_ = std::move(handler); }
 
-    template<typename ErrorHandler>
-    inline void on_error(ErrorHandler&& handler) noexcept { error_handler_ = std::move(handler); }
+    template <typename ErrorHandler>
+    inline void on_error(ErrorHandler handler) noexcept { error_handler_ = std::move(handler); }
 
-    template<typename ClosedHandler>
-    inline void on_closed(ClosedHandler&& handler) noexcept { closed_handler_ = std::move(handler); }
+    template <typename ClosedHandler>
+    inline void on_closed(ClosedHandler handler) noexcept { closed_handler_ = std::move(handler); }
 
 private:
     void do_resolve_()
@@ -264,7 +276,8 @@ private:
     {
         try
         {
-            auto guard{scope_guard([&](void*) { state_.reset(state_t::resolving); })};
+            auto guard{scope_guard([&](void*)
+                { state_.reset(state_t::resolving); })};
 
             if (!ec)
             {
@@ -305,7 +318,8 @@ private:
     {
         try
         {
-            auto guard{scope_guard([&](void*) { state_.reset(state_t::connecting); })};
+            auto guard{scope_guard([&](void*)
+                { state_.reset(state_t::connecting); })};
 
             if (!ec)
             {
@@ -354,7 +368,8 @@ private:
     {
         try
         {
-            auto guard{scope_guard([&](void*) { state_.reset(state_t::writing); })};
+            auto guard{scope_guard([&](void*)
+                { state_.reset(state_t::writing); })};
 
             if (!ec)
             {
@@ -404,7 +419,8 @@ private:
         {
             if (!connection_o_) { return; }
 
-            auto guard{scope_guard([&](void*) { state_.reset(state_t::reading); })};
+            auto guard{scope_guard([&](void*)
+                { state_.reset(state_t::reading); })};
 
             if (!ec)
             {
@@ -471,7 +487,7 @@ private:
                 || state_[state_t::writing])
             {
                 io::post(io_context_,
-                    /*on_wait_for_closed_*/[this]() noexcept
+                    /*on_wait_for_closed_*/ [this]() noexcept
                     {
                         try
                         {
@@ -516,22 +532,22 @@ private:
 
             io::post(
                 io_context_,
-                /*on_data_*/[this, data = std::move(data)]() mutable noexcept
-            {
-                try
+                /*on_data_*/ [this, data = std::move(data)]() mutable noexcept
                 {
-                    bool write_in_progress = !output_buffers_.empty();
-                    output_buffers_.emplace_back(std::move(data));
-                    if (!write_in_progress && socket_.is_open())
+                    try
                     {
-                        do_write_();
+                        bool write_in_progress = !output_buffers_.empty();
+                        output_buffers_.emplace_back(std::move(data));
+                        if (!write_in_progress && socket_.is_open())
+                        {
+                            do_write_();
+                        }
                     }
-                }
-                catch (...)
-                {
-                    log_exception("async_amqp::connection_t::on_data_"s);
-                }
-            });
+                    catch (...)
+                    {
+                        log_exception("async_amqp::connection_t::on_data_"s);
+                    }
+                });
         }
         catch (...)
         {

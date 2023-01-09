@@ -26,7 +26,7 @@ using namespace std::chrono_literals;
 void periodic_publish(
     steady_timer& timer,
     channels_t& channels,
-    json::value&& value,
+    json::value value,
     int& counter)
 {
     if (counter == 10) { return; }
@@ -45,7 +45,7 @@ void periodic_publish(
 void periodic_publish_2(
     steady_timer& timer,
     channels_t& channels,
-    json::value&& value,
+    json::value value,
     int& counter)
 {
     if (counter == 20) { return; }
@@ -129,7 +129,7 @@ BOOST_AUTO_TEST_CASE(async_amqp_test)
             "test",
             options.amqp_exchange,
             options.amqp_queue,
-            [&](in_channel_t&, json::value&& value)
+            [&](in_channel_t&, json::value value)
             {
                 if (msg_sender_counter > 0)
                 {
@@ -154,7 +154,7 @@ BOOST_AUTO_TEST_CASE(async_amqp_test)
             "test_2",
             options.amqp_exchange_2,
             options.amqp_queue_2,
-            [&](in_channel_t&, json::value&& value)
+            [&](in_channel_t&, json::value value)
             {
                 if (msg_sender_counter_2 > 0)
                 {

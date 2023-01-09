@@ -1,9 +1,6 @@
-﻿# CMakeList.txt : Top-level CMake project file, do global configuration
-# and include sub-projects here.
-#
-cmake_minimum_required (VERSION 3.12)
+﻿cmake_minimum_required (VERSION 3.12)
 
-project(async_amqp VERSION "1.0.0")
+project(async_amqp VERSION "2.0.0")
 
 add_subdirectory(external)
 
@@ -19,7 +16,6 @@ find_package (Boost REQUIRED COMPONENTS
   json
   system
   thread
-  program_options
   unit_test_framework)
 include_directories(${Boost_INCLUDE_DIR})
 
@@ -31,9 +27,7 @@ endif ()
 
 include_directories(include)
 
-# Include sub-projects.
-#add_subdirectory (src)
-add_subdirectory (apps)
+add_subdirectory (examples)
 
 enable_testing()
 add_subdirectory (tests)

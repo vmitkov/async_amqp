@@ -4,9 +4,6 @@ function(add_boost_test SOURCE_FILE_NAME)
 
     add_executable(${TEST_EXECUTABLE_NAME} ${SOURCE_FILE_NAME})
 
- #   target_include_directories(${TEST_EXECUTABLE_NAME} PUBLIC "${Boost_INCLUDE_DIRS}")
-
- #   target_link_libraries(${TEST_EXECUTABLE_NAME} ${Boost_UNIT_TEST_FRAMEWORK_LIBRARY})
     target_link_libraries(${TEST_EXECUTABLE_NAME} Boost::unit_test_framework)
     
     foreach(DEPENDENCY_LIB IN LISTS ARGN)
