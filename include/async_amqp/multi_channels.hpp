@@ -245,6 +245,9 @@ class out_channel_t_ : public channel_t_<Parent>
 
 public:
     using ready_handler_t = std::function<void(out_channel_t_&)>;
+    using publish_ack_handler_t = std::function<void(out_channel_t_&, std::string const& buffer)>;
+    using publish_lost_handler_t = std::function<void(out_channel_t_&, std::string const& buffer)>;
+    using publish_error_handler_t = std::function<void(out_channel_t_&, std::string const& buffer, char const* message)>;
 
     template <typename ReadyHandler>
     out_channel_t_(
@@ -256,6 +259,27 @@ public:
         : base_t_(parent, exchange_name, queue_name, route_name),
           ready_handler_(std::move(handler))
     {
+    }
+
+    template <typename Handler>
+    out_channel_t_& on_publish_ack(Handler&& handler)
+    {
+        publish_ack_handler_ = std::forward<Handler>(handler);
+        return *this;
+    }
+
+    template <typename Handler>
+    out_channel_t_& on_publish_lost(Handler&& handler)
+    {
+        publish_lost_handler_ = std::forward<Handler>(handler);
+        return *this;
+    }
+
+    template <typename Handler>
+    out_channel_t_& on_publish_error(Handler&& handler)
+    {
+        publish_error_handler_ = std::forward<Handler>(handler);
+        return *this;
     }
 
     void open(AMQP::Connection* connection_p)
@@ -321,7 +345,10 @@ private:
     {
         try
         {
-            if (ready_handler_ != nullptr) { ready_handler_(*this); }
+            if (ready_handler_ != nullptr)
+            {
+                ready_handler_(*this);
+            }
         }
         catch (...)
         {
@@ -334,6 +361,11 @@ private:
     {
         try
         {
+            if (publish_ack_handler_ != nullptr)
+            {
+                publish_ack_handler_(*this, buffer);
+            }
+
             base_t_::parent_.log(severity_level_t::trace,
                 "async_amqp::detail::out_channel_t_::on_publish_ack_: "s
                     + base_t_::channel_name_ + ", "s + buffer);
@@ -349,6 +381,11 @@ private:
     {
         try
         {
+            if (publish_lost_handler_ != nullptr)
+            {
+                publish_lost_handler_(*this, buffer);
+            }
+
             base_t_::parent_.log(severity_level_t::error,
                 "async_amqp::detail::out_channel_t_::on_publish_lost_: "s
                     + base_t_::channel_name_ + ", "s + buffer);
@@ -364,6 +401,11 @@ private:
     {
         try
         {
+            if (publish_error_handler_ != nullptr)
+            {
+                publish_error_handler_(*this, buffer, message);
+            }
+
             base_t_::parent_.log(severity_level_t::error,
                 "async_amqp::detail::out_channel_t_::on_publish_error_: "s + message
                     + ", "s + base_t_::channel_name_ + ", "s + buffer);
@@ -404,6 +446,9 @@ private:
     }
 
     ready_handler_t ready_handler_{nullptr};
+    publish_ack_handler_t publish_ack_handler_{nullptr};
+    publish_lost_handler_t publish_lost_handler_{nullptr};
+    publish_error_handler_t publish_error_handler_{nullptr};
     std::optional<AMQP::Reliable<>> reliable_o_;
 };
 
@@ -553,7 +598,10 @@ private:
             {
                 channel.second.close();
             }
-            if (connection_o_) { connection_o_->close(); }
+            if (connection_o_)
+            {
+                connection_o_->close();
+            }
         }
         catch (...)
         {
@@ -578,8 +626,7 @@ private:
                     catch (...)
                     {
                         log_exception("async_amqp::channels_t::on_wait_for_reconnection_"s);
-                    }
-                });
+                    } });
         }
         catch (...)
         {
@@ -591,10 +638,16 @@ private:
     {
         try
         {
-            if (!connection_o_) { throw std::runtime_error("Connection is closed"); }
+            if (!connection_o_)
+            {
+                throw std::runtime_error("Connection is closed");
+            }
 
             auto connection_p{connection_o_->amqp_connection()};
-            if (connection_p == nullptr) { throw std::runtime_error("AMQP::Connection is closed"); }
+            if (connection_p == nullptr)
+            {
+                throw std::runtime_error("AMQP::Connection is closed");
+            }
 
             for (auto& channel : in_channels_)
             {
@@ -653,4 +706,4 @@ private:
 using in_channel_t = detail::in_channel_t_<channels_t>;
 using out_channel_t = detail::out_channel_t_<channels_t>;
 
-} //namespace async_amqp
+} // namespace async_amqp

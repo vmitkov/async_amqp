@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2023-01-27
+### Added
+- Methods on_publish_ack, on_publish_lost, on_publish_error to produce
+async event handlers for publish method of out_channel_t_ class.
+
 ## [2.0.0] - 2023-01-05
 ### Added
 - Files README.md, LICENSE, Changelog, .clang-format.

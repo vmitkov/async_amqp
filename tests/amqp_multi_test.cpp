@@ -2,19 +2,19 @@
 
 #include "async_amqp/multi_channels.hpp"
 
-#include <boost/test/unit_test.hpp>
 #include <boost/asio.hpp>
 #include <boost/json.hpp>
 #include <boost/log/trivial.hpp>
+#include <boost/test/unit_test.hpp>
 
-#include <string>
 #include <chrono>
 #include <functional>
+#include <string>
 
-using async_amqp::severity_level_t;
+using async_amqp::channels_t;
 using async_amqp::in_channel_t;
 using async_amqp::out_channel_t;
-using async_amqp::channels_t;
+using async_amqp::severity_level_t;
 
 namespace json = boost::json;
 namespace io = boost::asio;
@@ -29,17 +29,20 @@ void periodic_publish(
     json::value value,
     int& counter)
 {
-    if (counter == 10) { return; }
+    if (counter == 10)
+    {
+        return;
+    }
     timer.expires_after(io::chrono::milliseconds(30));
     timer.async_wait(
         [&, value = std::move(value)](boost::system::error_code const& ec) mutable
-    {
-        if (!ec)
         {
-            channels.publish("test", json::object(value.as_object()));
-            periodic_publish(timer, channels, std::move(value), ++counter);
-        }
-    });
+            if (!ec)
+            {
+                channels.publish("test", json::object(value.as_object()));
+                periodic_publish(timer, channels, std::move(value), ++counter);
+            }
+        });
 }
 
 void periodic_publish_2(
@@ -48,17 +51,20 @@ void periodic_publish_2(
     json::value value,
     int& counter)
 {
-    if (counter == 20) { return; }
+    if (counter == 20)
+    {
+        return;
+    }
     timer.expires_after(io::chrono::milliseconds(20));
     timer.async_wait(
         [&, value = std::move(value)](boost::system::error_code const& ec) mutable
-    {
-        if (!ec)
         {
-            channels.publish("test_2", json::object(value.as_object()));
-            periodic_publish_2(timer, channels, std::move(value), ++counter);
-        }
-    });
+            if (!ec)
+            {
+                channels.publish("test_2", json::object(value.as_object()));
+                periodic_publish_2(timer, channels, std::move(value), ++counter);
+            }
+        });
 }
 
 BOOST_AUTO_TEST_CASE(async_amqp_test)
@@ -74,11 +80,9 @@ BOOST_AUTO_TEST_CASE(async_amqp_test)
         std::string amqp_route_2{"test_queue_2"s};
     };
 
-    const json::object json_msg_sample({
-        {"key"s, "value"s}});
+    const json::object json_msg_sample({{"key"s, "value"s}});
 
-    const json::object json_msg_sample_2({
-        {"key_2"s, "value_2"s}});
+    const json::object json_msg_sample_2({{"key_2"s, "value_2"s}});
 
     options_t options;
 
@@ -137,7 +141,8 @@ BOOST_AUTO_TEST_CASE(async_amqp_test)
                     BOOST_CHECK(value == json_msg_sample);
                     if (msg_receiver_counter == 10 && msg_receiver_counter_2 == 20)
                     {
-                        io::post(io_context, [&]() { io_context.stop(); });
+                        io::post(io_context, [&]()
+                            { io_context.stop(); });
                     }
                 }
             });
@@ -162,7 +167,8 @@ BOOST_AUTO_TEST_CASE(async_amqp_test)
                     BOOST_CHECK(value == json_msg_sample_2);
                     if (msg_receiver_counter == 10 && msg_receiver_counter_2 == 20)
                     {
-                        io::post(io_context, [&]() { io_context.stop(); });
+                        io::post(io_context, [&]()
+                            { io_context.stop(); });
                     }
                 }
             });
@@ -189,6 +195,12 @@ BOOST_AUTO_TEST_CASE(async_amqp_test)
             });
         BOOST_CHECK(ok);
         it->second
+            .on_publish_ack([&](out_channel_t&, std::string const& buffer)
+                { BOOST_CHECK(json::parse(buffer).as_object() == json_msg_sample); })
+            .on_publish_lost([](out_channel_t&, std::string const&)
+                { BOOST_CHECK(false); })
+            .on_publish_error([](out_channel_t&, std::string const&, char const*)
+                { BOOST_CHECK(false); })
             .exchange_type(AMQP::direct)
             .queue_flags(AMQP::durable)
             .queue_arguments(arguments);
@@ -210,6 +222,12 @@ BOOST_AUTO_TEST_CASE(async_amqp_test)
             });
         BOOST_CHECK(ok);
         it->second
+            .on_publish_ack([&](out_channel_t&, std::string const& buffer)
+                { BOOST_CHECK(json::parse(buffer).as_object() == json_msg_sample_2); })
+            .on_publish_lost([](out_channel_t&, std::string const&)
+                { BOOST_CHECK(false); })
+            .on_publish_error([](out_channel_t&, std::string const&, char const*)
+                { BOOST_CHECK(false); })
             .exchange_type(AMQP::direct)
             .queue_flags(AMQP::durable)
             .queue_arguments(arguments);
@@ -220,7 +238,8 @@ BOOST_AUTO_TEST_CASE(async_amqp_test)
     steady_timer stop_timer(io_context);
     stop_timer.expires_after(io::chrono::seconds(5));
     stop_timer.async_wait(
-        [&](const boost::system::error_code&) {	io_context.stop(); });
+        [&](const boost::system::error_code&)
+        { io_context.stop(); });
 
     io_context.run();
 
