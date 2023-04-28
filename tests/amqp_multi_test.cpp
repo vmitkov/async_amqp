@@ -233,6 +233,7 @@ BOOST_AUTO_TEST_CASE(async_amqp_test)
             .queue_arguments(arguments);
     }
 
+    channels.heartbeat_interval(60);
     channels.open();
 
     steady_timer stop_timer(io_context);

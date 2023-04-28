@@ -557,6 +557,11 @@ public:
             std::forward<Name>(name), *this, exchange, queue, routing_key, std::move(handler));
     }
 
+    void heartbeat_interval(uint16_t interval)
+    {
+        heartbeat_interval_ = interval;
+    }
+
     template <typename Parent>
     friend class detail::channel_t_;
 
@@ -578,6 +583,7 @@ private:
             connection_o_->on_ready(std::bind(&channels_t::on_connection_ready_, this, _1));
             connection_o_->on_error(std::bind(&channels_t::on_connection_error_, this, _1, _2));
             connection_o_->on_closed(std::bind(&channels_t::on_connection_closed_, this, _1));
+            if(heartbeat_interval_ != 0) connection_o_->do_heartbeat(heartbeat_interval_);
             connection_o_->open();
         }
         catch (...)
@@ -701,6 +707,7 @@ private:
     out_channels_t out_channels_;
 
     std::atomic<bool> finish_{false};
+    std::atomic<uint16_t> heartbeat_interval_{0};
 };
 
 using in_channel_t = detail::in_channel_t_<channels_t>;

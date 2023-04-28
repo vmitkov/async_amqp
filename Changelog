@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2023-04-27
+### Added
+- Methods async_amqp::channels_t::heartbeat_interval, async_amqp::connection_t::do_heartbeat,
+  async_amqp::connection_t::on_timeout_check_, async_amqp::connection_t::do_timeout_check_,
+  async_amqp::connection_t::onNegotiate, async_amqp::connection_t::onHeartbeat to support
+  heartbeats.
+- CMakePresets.json file.
+### Removed
+- CMakeSettings.json file.
+
 ## [2.1.0] - 2023-01-27
 ### Added
 - Methods on_publish_ack, on_publish_lost, on_publish_error to produce

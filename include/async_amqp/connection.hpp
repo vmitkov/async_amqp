@@ -83,7 +83,10 @@ public:
     {
         try
         {
-            if (log_handler_ != nullptr) { log_handler_(severity_level, message); }
+            if (log_handler_ != nullptr)
+            {
+                log_handler_(severity_level, message);
+            }
         }
         catch (...)
         {
@@ -166,6 +169,7 @@ public:
           address_(std::move(address)),
           resolver_(io_context),
           socket_(io_context),
+          timer_(io_context),
           log_t(std::move(log_handler))
     {
         log(severity_level_t::debug, "async_amqp::connection_t::connection_t");
@@ -181,7 +185,10 @@ public:
         try
         {
             log(severity_level_t::error, message);
-            if (error_handler_ != nullptr) { error_handler_(*this, message); }
+            if (error_handler_ != nullptr)
+            {
+                error_handler_(*this, message);
+            }
         }
         catch (...)
         {
@@ -203,8 +210,7 @@ public:
                     catch (...)
                     {
                         log_exception("async_amqp::connection_t::on_open_"s);
-                    }
-                });
+                    } });
         }
         catch (...)
         {
@@ -231,12 +237,39 @@ public:
                     catch (...)
                     {
                         log_exception("async_amqp::connection_t::on_close_"s);
-                    }
-                });
+                    } });
         }
         catch (...)
         {
             std::throw_with_nested(std::runtime_error("async_amqp::connection_t::close"s));
+        }
+    }
+
+    void do_heartbeat(uint16_t interval)
+    {
+        try
+        {
+            io::post(
+                io_context_,
+                /*on_heartbeat_*/ [this, interval]() noexcept
+                {
+                    assert(state_.none());
+                    try
+                    {
+                        if (interval != 0)
+                        {
+                            interval_ = interval;
+                            do_timeout_check_();
+                        }
+                    }
+                    catch (...)
+                    {
+                        log_exception("async_amqp::connection_t::on_heartbeat"s);
+                    } });
+        }
+        catch (...)
+        {
+            std::throw_with_nested(std::runtime_error("async_amqp::connection_t::do_heartbeat"s));
         }
     }
 
@@ -350,7 +383,10 @@ private:
 
         try
         {
-            if (!socket_.is_open()) { return; }
+            if (!socket_.is_open())
+            {
+                return;
+            }
 
             state_.set(state_t::writing);
 
@@ -396,7 +432,10 @@ private:
 
         try
         {
-            if (!socket_.is_open() || !connection_o_) { return; }
+            if (!socket_.is_open() || !connection_o_)
+            {
+                return;
+            }
 
             state_.set(state_t::reading);
 
@@ -417,7 +456,10 @@ private:
     {
         try
         {
-            if (!connection_o_) { return; }
+            if (!connection_o_)
+            {
+                return;
+            }
 
             auto guard{scope_guard([&](void*)
                 { state_.reset(state_t::reading); })};
@@ -479,7 +521,10 @@ private:
     {
         try
         {
-            if (!state_[state_t::closing]) { return; }
+            if (!state_[state_t::closing])
+            {
+                return;
+            }
 
             if (state_[state_t::resolving]
                 || state_[state_t::connecting]
@@ -496,18 +541,51 @@ private:
                         catch (...)
                         {
                             log_exception("async_amqp::connection_t::on_wait_for_closed_"s);
-                        }
-                    });
+                        } });
             }
             else
             {
                 state_.reset();
-                if (closed_handler_ != nullptr) { closed_handler_(*this); }
+                if (closed_handler_ != nullptr)
+                {
+                    closed_handler_(*this);
+                }
             }
         }
         catch (...)
         {
             std::throw_with_nested(std::runtime_error("async_amqp::connection_t::do_wait_for_closed_"s));
+        }
+    }
+
+    void on_timeout_check_(sys::error_code const& ec) noexcept
+    {
+        try
+        {
+            if (ec != io::error::operation_aborted)
+            {
+                if (ec) throw std::system_error(ec);
+                if (connection_o_) connection_o_->heartbeat();
+                do_timeout_check_();
+            }
+        }
+        catch (...)
+        {
+            log_exception("async_amqp::connection_t::on_timeout_check_"s);
+        }
+    }
+
+    void do_timeout_check_()
+    {
+        using namespace std::placeholders;
+        try
+        {
+            timer_.expires_after(io::chrono::seconds(interval_));
+            timer_.async_wait(std::bind(&connection_t::on_timeout_check_, this, _1));
+        }
+        catch (...)
+        {
+            std::throw_with_nested(std::runtime_error("async_amqp::connection_t::do_timeout_check_"));
         }
     }
 
@@ -546,8 +624,7 @@ private:
                     catch (...)
                     {
                         log_exception("async_amqp::connection_t::on_data_"s);
-                    }
-                });
+                    } });
         }
         catch (...)
         {
@@ -565,7 +642,10 @@ private:
     {
         try
         {
-            if (ready_handler_ != nullptr) { ready_handler_(*this); }
+            if (ready_handler_ != nullptr)
+            {
+                ready_handler_(*this);
+            }
         }
         catch (...)
         {
@@ -588,7 +668,10 @@ private:
         //  connection object because it is no longer in a usable state
         try
         {
-            if (error_handler_ != nullptr) { error_handler_(*this, message); }
+            if (error_handler_ != nullptr)
+            {
+                error_handler_(*this, message);
+            }
         }
         catch (...)
         {
@@ -619,6 +702,42 @@ private:
         }
     }
 
+    /**
+     *  Method that is called when the server tries to negotiate a heartbeat
+     *  interval, and that is overridden to get rid of the default implementation
+     *  (which vetoes the suggested heartbeat interval), and accept the interval
+     *  instead.
+     *  @param  connection      The connection on which the error occurred
+     *  @param  interval        The suggested interval in seconds
+     */
+    virtual uint16_t onNegotiate(AMQP::Connection* connection_p, uint16_t interval)
+    {
+        // @todo
+        //  set a timer in your event loop, and make sure that you call
+        //  connection->heartbeat() every _interval_ seconds if no other
+        //  instruction was sent in that period.
+
+        // return the interval that we want to use
+        return interval_;
+    }
+
+    /**
+     *  Method that is called when the AMQP-CPP library received a heartbeat
+     *  frame that was sent by the server to the client.
+     *
+     *  You do not have to do anything here, the client sends back a heartbeat
+     *  frame automatically, but if you like, you can implement/override this
+     *  method if you want to be notified of such heartbeats
+     *
+     *  @param  connection      The connection over which the heartbeat was received
+     */
+    virtual void onHeartbeat(AMQP::Connection* connection_p)
+    {
+#ifndef NDEBUG
+        log(severity_level_t::trace, "async_amqp::connection_t::onHeartbeat"s);
+#endif
+    }
+
 private:
     enum state_t
     {
@@ -644,6 +763,8 @@ private:
     closed_handler_t closed_handler_{nullptr};
 
     std::bitset<state_t::size> state_;
+    uint16_t interval_{0};
+    io::steady_timer timer_;
 };
 
-} //namespace async_amqp
+} // namespace async_amqp

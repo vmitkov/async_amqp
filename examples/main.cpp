@@ -100,6 +100,7 @@ int main()
             .queue_arguments(arguments);
     }
 
+    channels.heartbeat_interval(60);
     channels.open();
 
     io::signal_set signals(io_context, SIGINT, SIGTERM);
