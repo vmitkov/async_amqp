@@ -508,8 +508,8 @@ private:
             {
                 sys::error_code error;
                 socket_.close(error);
-                do_wait_for_closed_();
             }
+            do_wait_for_closed_();
         }
         catch (...)
         {

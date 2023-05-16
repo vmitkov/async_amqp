@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.1] - 2023-05-16
+### Changed
+- Method async_amqp::connection_t::do_close_ to reconnect after error if socket is closed.
+
 ## [2.2.0] - 2023-04-27
 ### Added
 - Methods async_amqp::channels_t::heartbeat_interval, async_amqp::connection_t::do_heartbeat,

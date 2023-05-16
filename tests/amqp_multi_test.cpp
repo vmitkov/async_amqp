@@ -23,6 +23,37 @@ using io::steady_timer;
 using namespace std::literals;
 using namespace std::chrono_literals;
 
+class log_t
+{
+public:
+    void operator()(severity_level_t severity_level, std::string const& message)
+    {
+        switch (severity_level)
+        {
+        case severity_level_t::trace:
+            BOOST_LOG_TRIVIAL(trace) << message;
+            break;
+        case severity_level_t::debug:
+            BOOST_LOG_TRIVIAL(debug) << message;
+            break;
+        case severity_level_t::info:
+            BOOST_LOG_TRIVIAL(info) << message;
+            break;
+        case severity_level_t::warning:
+            BOOST_LOG_TRIVIAL(warning) << message;
+            break;
+        case severity_level_t::error:
+            BOOST_LOG_TRIVIAL(error) << message;
+            break;
+        case severity_level_t::fatal:
+            BOOST_LOG_TRIVIAL(fatal) << message;
+            break;
+        default:
+            break;
+        }
+    }
+};
+
 void periodic_publish(
     steady_timer& timer,
     channels_t& channels,
@@ -88,34 +119,7 @@ BOOST_AUTO_TEST_CASE(async_amqp_test)
 
     io::io_context io_context;
 
-    auto log = [](severity_level_t severity_level, std::string const& message)
-    {
-        switch (severity_level)
-        {
-        case severity_level_t::trace:
-            BOOST_LOG_TRIVIAL(trace) << message;
-            break;
-        case severity_level_t::debug:
-            BOOST_LOG_TRIVIAL(debug) << message;
-            break;
-        case severity_level_t::info:
-            BOOST_LOG_TRIVIAL(info) << message;
-            break;
-        case severity_level_t::warning:
-            BOOST_LOG_TRIVIAL(warning) << message;
-            break;
-        case severity_level_t::error:
-            BOOST_LOG_TRIVIAL(error) << message;
-            break;
-        case severity_level_t::fatal:
-            BOOST_LOG_TRIVIAL(fatal) << message;
-            break;
-        default:
-            break;
-        }
-    };
-
-    channels_t channels(io_context, options.amqp_url, std::move(log));
+    channels_t channels(io_context, options.amqp_url, log_t());
 
     int msg_receiver_counter{0};
     int msg_sender_counter{0};
@@ -253,4 +257,33 @@ BOOST_AUTO_TEST_CASE(async_amqp_test)
     BOOST_LOG_TRIVIAL(debug) << "msg_receiver_counter_2: " << msg_receiver_counter_2;
 
     BOOST_CHECK(msg_receiver_counter_2 == 20 && msg_sender_counter_2 == 20);
+}
+
+BOOST_AUTO_TEST_CASE(async_amqp_resolve_test)
+{
+    io::io_context io_context;
+    size_t connection_count{};
+
+    steady_timer stop_timer(io_context);
+    stop_timer.expires_after(io::chrono::seconds(10));
+    stop_timer.async_wait(
+        [&](const boost::system::error_code&)
+        { io_context.stop(); });
+
+    channels_t channels(
+        io_context,
+        "amqp://rabbitmq/"s,
+        [&](severity_level_t severity_level, std::string const& message)
+        {
+            if (message.find("connection_t::connection_t"s) != std::string::npos)
+            {
+                if (++connection_count > 1) io_context.stop();
+            }
+            log_t().operator()(severity_level, message);
+        });
+    channels.open();
+
+    io_context.run();
+
+    BOOST_CHECK(connection_count > 1);
 }
