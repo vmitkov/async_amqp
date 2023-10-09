@@ -275,7 +275,7 @@ BOOST_AUTO_TEST_CASE(async_amqp_resolve_test)
         "amqp://rabbitmq/"s,
         [&](severity_level_t severity_level, std::string const& message)
         {
-            if (message.find("connection_t::connection_t"s) != std::string::npos)
+            if (message.find("channels_t::on_connection_closed_"s) != std::string::npos)
             {
                 if (++connection_count > 1) io_context.stop();
             }
