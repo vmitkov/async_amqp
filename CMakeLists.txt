@@ -1,6 +1,6 @@
 ﻿cmake_minimum_required (VERSION 3.12)
 
-project(async_amqp VERSION "2.2.2")
+project(async_amqp VERSION "2.2.3")
 
 add_subdirectory(external)
 

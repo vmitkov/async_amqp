@@ -177,6 +177,30 @@ public:
         log(severity_level_t::debug, "async_amqp::connection_t::~connection_t");
     }
 
+    // This method should be called before calling the open method
+    template <typename ReadyHandler>
+    inline connection_t& on_ready(ReadyHandler handler) noexcept
+    {
+        ready_handler_ = std::move(handler);
+        return *this;
+    }
+
+    // This method should be called before calling the open method
+    template <typename ErrorHandler>
+    inline connection_t& on_error(ErrorHandler handler) noexcept
+    {
+        error_handler_ = std::move(handler);
+        return *this;
+    }
+
+    // This method should be called before calling the open method
+    template <typename ClosedHandler>
+    inline connection_t& on_closed(ClosedHandler handler) noexcept
+    {
+        closed_handler_ = std::move(handler);
+        return *this;
+    }
+
     inline void error(std::string const& message)
     {
         try
@@ -273,18 +297,9 @@ public:
     }
 
     io::io_context& io_context() { return io_context_; }
+
+    // Next public methods should be called only at the event processing loop of io_context_
     AMQP::Connection* amqp_connection() noexcept { return connection_o_ ? &(*connection_o_) : nullptr; }
-
-    template <typename ReadyHandler>
-    inline void on_ready(ReadyHandler handler) noexcept { ready_handler_ = std::move(handler); }
-
-    template <typename ErrorHandler>
-    inline void on_error(ErrorHandler handler) noexcept { error_handler_ = std::move(handler); }
-
-    template <typename ClosedHandler>
-    inline void on_closed(ClosedHandler handler) noexcept { closed_handler_ = std::move(handler); }
-
-protected:
     bool is_closed() const { return !socket_.is_open() && state_.none() && !connection_o_; }
 
 private:
@@ -724,7 +739,7 @@ private:
         closing,
         size
     };
-    
+
     io::io_context& io_context_;
     AMQP::Address address_;
     tcp::resolver resolver_;
