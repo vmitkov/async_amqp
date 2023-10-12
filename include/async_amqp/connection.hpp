@@ -166,7 +166,8 @@ public:
           address_(std::move(address)),
           resolver_(io_context),
           socket_(io_context),
-          timer_(io_context),
+          heartbeat_timer_(io_context),
+          wait_for_closed_timer_(io_context),
           log_t(std::move(log_handler))
     {
         log(severity_level_t::debug, "async_amqp::connection_t::connection_t");
@@ -249,10 +250,7 @@ public:
                     try
                     {
                         if (state_[state_t::closing]) return;
-
                         state_.set(state_t::closing);
-
-                        if (connection_o_) connection_o_.reset();
                         do_close_();
                     }
                     catch (...)
@@ -462,10 +460,10 @@ private:
     {
         try
         {
-            if (!connection_o_) return;
-
             auto guard{scope_guard([&](void*)
                 { state_.reset(state_t::reading); })};
+
+            if (!connection_o_) return;
 
             if (!ec)
             {
@@ -473,13 +471,12 @@ private:
                     parse_buffer_.end(),
                     io::buffers_begin(input_buffer_.data()),
                     io::buffers_end(input_buffer_.data()));
-                input_buffer_.consume(input_buffer_.size());
 
                 while (parse_buffer_.size() >= connection_o_->expected())
                 {
                     auto const parsed{connection_o_->parse(
                         parse_buffer_.data(), parse_buffer_.size())};
-                    if (parsed > 0)
+                    if (parsed > 0 && parse_buffer_.size() >= parsed)
                     {
                         parse_buffer_.erase(
                             parse_buffer_.begin(),
@@ -490,6 +487,7 @@ private:
                         break;
                     }
                 }
+                input_buffer_.consume(input_buffer_.size());
                 do_read_();
             }
             else
@@ -507,7 +505,11 @@ private:
     {
         try
         {
-            if (socket_.is_open())
+            if (connection_o_ && connection_o_->usable())
+            {
+                connection_o_->close();
+            }
+            else if (socket_.is_open())
             {
                 sys::error_code error;
                 socket_.close(error);
@@ -529,15 +531,27 @@ private:
             if (state_[state_t::resolving]
                 || state_[state_t::connecting]
                 || state_[state_t::reading]
-                || state_[state_t::writing])
+                || state_[state_t::writing]
+                || socket_.is_open())
             {
-                io::post(io_context_,
+                wait_for_closed_timer_.expires_after(io::chrono::seconds(1));
+                wait_for_closed_timer_.async_wait(
                     /*on_wait_for_closed_*/
-                    [this]() noexcept
+                    [this](sys::error_code const& ec) noexcept
                     {
                         try
                         {
-                            do_wait_for_closed_();
+                            if (ec != io::error::operation_aborted)
+                            {
+                                if (ec) throw std::system_error(ec);
+
+                                if (socket_.is_open() && ++wait_counter_ >= 5)
+                                {
+                                    sys::error_code error;
+                                    socket_.close(error);
+                                }
+                                do_wait_for_closed_();
+                            }
                         }
                         catch (...)
                         {
@@ -547,7 +561,12 @@ private:
             }
             else
             {
+                connection_o_.reset();
                 state_.reset();
+                input_buffer_.consume(input_buffer_.size());
+                parse_buffer_.clear();
+                output_buffers_.clear();
+                wait_counter_ = 0;
                 if (closed_handler_ != nullptr) closed_handler_(*this);
             }
         }
@@ -579,8 +598,8 @@ private:
         using namespace std::placeholders;
         try
         {
-            timer_.expires_after(io::chrono::seconds(interval_));
-            timer_.async_wait(std::bind(&connection_t::on_timeout_check_, this, _1));
+            heartbeat_timer_.expires_after(io::chrono::seconds(interval_));
+            heartbeat_timer_.async_wait(std::bind(&connection_t::on_timeout_check_, this, _1));
         }
         catch (...)
         {
@@ -685,8 +704,11 @@ private:
         //  underlying TCP connection too
         try
         {
-            connection_o_.reset();
-            do_close_();
+            if (socket_.is_open())
+            {
+                sys::error_code error;
+                socket_.close(error);
+            }
         }
         catch (...)
         {
@@ -755,7 +777,9 @@ private:
 
     std::bitset<state_t::size> state_;
     uint16_t interval_{0};
-    io::steady_timer timer_;
+    io::steady_timer heartbeat_timer_;
+    io::steady_timer wait_for_closed_timer_;
+    int wait_counter_{0};
 };
 
 } // namespace async_amqp

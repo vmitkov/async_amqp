@@ -10,7 +10,6 @@
 #include <boost/asio.hpp>
 #include <boost/json.hpp>
 
-#include <atomic>
 #include <cassert>
 #include <cstddef>
 #include <functional>
@@ -498,7 +497,6 @@ public:
     {
         try
         {
-            finish_ = false;
             do_wait_for_reconnection_();
         }
         catch (...)
@@ -511,8 +509,20 @@ public:
     {
         try
         {
-            finish_ = true;
-            close_connection_();
+            reconnection_timer_.cancel();
+            io::post(io_context_,
+                // do_close_
+                [this]() mutable noexcept
+                {
+                    try
+                    {
+                        close_connection_();
+                    }
+                    catch (...)
+                    {
+                        log_exception("async_amqp::channels_t::do_close_"s);
+                    }
+                });
         }
         catch (...)
         {
@@ -602,7 +612,7 @@ private:
     {
         try
         {
-            if (!finish_) connection_.open();
+            connection_.open();
             reconnection_timer_.expires_after(io::chrono::seconds(5));
             reconnection_timer_.async_wait(
                 /*on_wait_for_reconnection_*/
@@ -643,10 +653,11 @@ private:
             {
                 channel.second.open(connection_p);
             }
+            connection.log(severity_level_t::info, "async_amqp::channels_t::on_connection_ready_: Connection open"s);
         }
         catch (...)
         {
-            connection.log_exception("async_amqp::channels_t::on_ready_"s);
+            connection.log_exception("async_amqp::channels_t::on_connection_ready_"s);
         }
     }
 
@@ -677,7 +688,6 @@ private:
     }
 
     io::io_context& io_context_;
-    std::atomic<bool> finish_{false};
     io::steady_timer reconnection_timer_;
 
     connection_t connection_;
