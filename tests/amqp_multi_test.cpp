@@ -275,7 +275,7 @@ BOOST_AUTO_TEST_CASE(async_amqp_resolve_test)
         "amqp://rabbitmq/"s,
         [&](severity_level_t severity_level, std::string const& message)
         {
-            if (message.find("connection_t::connection_t"s) != std::string::npos)
+            if (message.find("channels_t::on_connection_closed_"s) != std::string::npos)
             {
                 if (++connection_count > 1) io_context.stop();
             }
@@ -286,4 +286,62 @@ BOOST_AUTO_TEST_CASE(async_amqp_resolve_test)
     io_context.run();
 
     BOOST_CHECK(connection_count > 1);
+}
+
+BOOST_AUTO_TEST_CASE(async_amqp_open_close_test)
+{
+    io::io_context io_context;
+    size_t open_connection_count{};
+    size_t close_connection_count{};
+
+    channels_t channels(
+        io_context,
+        "amqp://127.0.0.1:5672/"s,
+        [&](severity_level_t severity_level, std::string const& message)
+        {
+            if (message.find("channels_t::on_connection_closed_"s) != std::string::npos)
+            {
+                ++close_connection_count;
+            }
+            if (message.find("channels_t::on_connection_ready_"s) != std::string::npos)
+            {
+                ++open_connection_count;
+            }
+            log_t().operator()(severity_level, message);
+        });
+
+    channels.open();
+
+    steady_timer stop_timer(io_context);
+    stop_timer.expires_after(io::chrono::seconds(10));
+    stop_timer.async_wait(
+        [&](const boost::system::error_code&)
+        { io_context.stop(); });
+
+    steady_timer open_close_timer(io_context);
+    auto open_channels{
+        [&](const boost::system::error_code&)
+        {
+            channels.open();
+            open_close_timer.expires_after(io::chrono::seconds(2));
+            open_close_timer.async_wait(
+                [&](const boost::system::error_code&)
+                { channels.close(); });
+        }};
+
+    auto close_channels{
+        [&](const boost::system::error_code&)
+        {
+            channels.close();
+            open_close_timer.expires_after(io::chrono::seconds(2));
+            open_close_timer.async_wait(open_channels);
+        }};
+
+    open_close_timer.expires_after(io::chrono::seconds(2));
+    open_close_timer.async_wait(close_channels);
+
+    io_context.run();
+
+    BOOST_CHECK(open_connection_count == 2);
+    BOOST_CHECK(close_connection_count == 2);
 }

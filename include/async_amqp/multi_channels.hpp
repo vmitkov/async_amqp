@@ -10,7 +10,6 @@
 #include <boost/asio.hpp>
 #include <boost/json.hpp>
 
-#include <atomic>
 #include <cassert>
 #include <cstddef>
 #include <functional>
@@ -25,6 +24,7 @@ namespace io = boost::asio;
 namespace json = boost::json;
 
 using namespace std::literals;
+using namespace std::placeholders;
 
 namespace detail
 {
@@ -59,26 +59,31 @@ public:
         exchange_type_ = type;
         return *this;
     }
+
     channel_t_& exchange_flags(int flags)
     {
         exchange_flags_ = flags;
         return *this;
     }
+
     channel_t_& exchange_arguments(AMQP::Table const& arguments)
     {
         exchange_arguments_ = arguments;
         return *this;
     }
+
     channel_t_& queue_flags(int flags)
     {
         queue_flags_ = flags;
         return *this;
     }
+
     channel_t_& queue_arguments(AMQP::Table const& arguments)
     {
         queue_arguments_ = arguments;
         return *this;
     }
+
     channel_t_& bind_arguments(AMQP::Table const& arguments)
     {
         bind_arguments_ = arguments;
@@ -87,7 +92,6 @@ public:
 
     void open(AMQP::Connection* connection_p)
     {
-        using namespace std::placeholders;
         try
         {
             assert(connection_p != nullptr);
@@ -192,7 +196,6 @@ public:
 
     void open(AMQP::Connection* connection_p)
     {
-        using namespace std::placeholders;
         try
         {
             assert(connection_p != nullptr);
@@ -284,7 +287,6 @@ public:
 
     void open(AMQP::Connection* connection_p)
     {
-        using namespace std::placeholders;
         try
         {
             assert(connection_p != nullptr);
@@ -420,7 +422,6 @@ private:
 
     void on_publish_(json::value value) noexcept
     {
-        using namespace std::placeholders;
         try
         {
             if (!base_t_::channel_o_ || !reliable_o_ || !base_t_::channel_o_->usable())
@@ -467,15 +468,19 @@ public:
         io::io_context& io_context,
         std::string const& url,
         LogHandler log_handler)
-        : io_context_(io_context),
-          url_(url),
-          log_t(std::move(log_handler)),
-          reconnection_timer_(io_context_)
+        : log_t(std::move(log_handler)),
+          io_context_(io_context),
+          reconnection_timer_(io_context),
+          connection_(io_context, url, std::bind(&channels_t::log, this, _1, _2))
     {
         try
         {
             log(severity_level_t::debug, "async_amqp::channels_t::channels_t");
-            do_wait_for_reconnection_();
+
+            connection_
+                .on_ready(std::bind(&channels_t::on_connection_ready_, this, _1))
+                .on_error(std::bind(&channels_t::on_connection_error_, this, _1, _2))
+                .on_closed(std::bind(&channels_t::on_connection_closed_, this, _1));
         }
         catch (...)
         {
@@ -492,8 +497,7 @@ public:
     {
         try
         {
-            finish_ = false;
-            open_connection_();
+            do_wait_for_reconnection_();
         }
         catch (...)
         {
@@ -505,8 +509,20 @@ public:
     {
         try
         {
-            finish_ = true;
-            close_connection_();
+            reconnection_timer_.cancel();
+            io::post(io_context_,
+                // do_close_
+                [this]() mutable noexcept
+                {
+                    try
+                    {
+                        close_connection_();
+                    }
+                    catch (...)
+                    {
+                        log_exception("async_amqp::channels_t::do_close_"s);
+                    }
+                });
         }
         catch (...)
         {
@@ -559,7 +575,7 @@ public:
 
     void heartbeat_interval(uint16_t interval)
     {
-        heartbeat_interval_ = interval;
+        connection_.do_heartbeat(interval);
     }
 
     template <typename Parent>
@@ -572,26 +588,6 @@ public:
     friend class detail::out_channel_t_;
 
 private:
-    void open_connection_()
-    {
-        using namespace std::placeholders;
-        try
-        {
-            connection_o_.emplace(
-                io_context_, url_, std::bind(&channels_t::log, this, _1, _2));
-
-            connection_o_->on_ready(std::bind(&channels_t::on_connection_ready_, this, _1));
-            connection_o_->on_error(std::bind(&channels_t::on_connection_error_, this, _1, _2));
-            connection_o_->on_closed(std::bind(&channels_t::on_connection_closed_, this, _1));
-            if(heartbeat_interval_ != 0) connection_o_->do_heartbeat(heartbeat_interval_);
-            connection_o_->open();
-        }
-        catch (...)
-        {
-            std::throw_with_nested(std::runtime_error("async_amqp::channels_t::open_connection_"s));
-        }
-    }
-
     inline void close_connection_()
     {
         try
@@ -604,10 +600,7 @@ private:
             {
                 channel.second.close();
             }
-            if (connection_o_)
-            {
-                connection_o_->close();
-            }
+            connection_.close();
         }
         catch (...)
         {
@@ -619,20 +612,22 @@ private:
     {
         try
         {
+            connection_.open();
             reconnection_timer_.expires_after(io::chrono::seconds(5));
             reconnection_timer_.async_wait(
-                /*on_wait_for_reconnection_*/ [this](boost::system::error_code const& ec) noexcept
+                /*on_wait_for_reconnection_*/
+                [this](boost::system::error_code const& ec) noexcept
                 {
                     try
                     {
-                        if (ec) { throw std::system_error(ec); }
-                        if (!connection_o_ && !finish_) { open_connection_(); }
+                        if (ec) throw std::system_error(ec);
                         do_wait_for_reconnection_();
                     }
                     catch (...)
                     {
                         log_exception("async_amqp::channels_t::on_wait_for_reconnection_"s);
-                    } });
+                    }
+                });
         }
         catch (...)
         {
@@ -644,12 +639,7 @@ private:
     {
         try
         {
-            if (!connection_o_)
-            {
-                throw std::runtime_error("Connection is closed");
-            }
-
-            auto connection_p{connection_o_->amqp_connection()};
+            auto connection_p{connection.amqp_connection()};
             if (connection_p == nullptr)
             {
                 throw std::runtime_error("AMQP::Connection is closed");
@@ -663,10 +653,11 @@ private:
             {
                 channel.second.open(connection_p);
             }
+            connection.log(severity_level_t::info, "async_amqp::channels_t::on_connection_ready_: Connection open"s);
         }
         catch (...)
         {
-            log_exception("async_amqp::channels_t::on_ready_"s);
+            connection.log_exception("async_amqp::channels_t::on_connection_ready_"s);
         }
     }
 
@@ -680,7 +671,7 @@ private:
         }
         catch (...)
         {
-            log_exception("async_amqp::channels_t::on_connection_error_"s);
+            connection.log_exception("async_amqp::channels_t::on_connection_error_"s);
         }
     }
 
@@ -689,25 +680,19 @@ private:
         try
         {
             connection.log(severity_level_t::info, "async_amqp::channels_t::on_connection_closed_: Connection closed"s);
-            connection_o_.reset();
         }
         catch (...)
         {
-            log_exception("async_amqp::channels_t::on_connection_closed_"s);
+            connection.log_exception("async_amqp::channels_t::on_connection_closed_"s);
         }
     }
 
     io::io_context& io_context_;
-    std::string const url_;
-
     io::steady_timer reconnection_timer_;
 
-    std::optional<connection_t> connection_o_;
+    connection_t connection_;
     in_channels_t in_channels_;
     out_channels_t out_channels_;
-
-    std::atomic<bool> finish_{false};
-    std::atomic<uint16_t> heartbeat_interval_{0};
 };
 
 using in_channel_t = detail::in_channel_t_<channels_t>;
