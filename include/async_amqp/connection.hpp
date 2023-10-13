@@ -83,10 +83,7 @@ public:
     {
         try
         {
-            if (log_handler_ != nullptr)
-            {
-                log_handler_(severity_level, message);
-            }
+            if (log_handler_ != nullptr) log_handler_(severity_level, message);
         }
         catch (...)
         {
@@ -163,13 +160,14 @@ public:
     template <typename LogHandler>
     connection_t(
         io::io_context& io_context,
-        AMQP::Address address,
+        AMQP::Address&& address,
         LogHandler log_handler)
         : io_context_(io_context),
           address_(std::move(address)),
           resolver_(io_context),
           socket_(io_context),
-          timer_(io_context),
+          heartbeat_timer_(io_context),
+          wait_for_closed_timer_(io_context),
           log_t(std::move(log_handler))
     {
         log(severity_level_t::debug, "async_amqp::connection_t::connection_t");
@@ -180,15 +178,36 @@ public:
         log(severity_level_t::debug, "async_amqp::connection_t::~connection_t");
     }
 
+    // This method should be called before calling the open method
+    template <typename ReadyHandler>
+    inline connection_t& on_ready(ReadyHandler handler) noexcept
+    {
+        ready_handler_ = std::move(handler);
+        return *this;
+    }
+
+    // This method should be called before calling the open method
+    template <typename ErrorHandler>
+    inline connection_t& on_error(ErrorHandler handler) noexcept
+    {
+        error_handler_ = std::move(handler);
+        return *this;
+    }
+
+    // This method should be called before calling the open method
+    template <typename ClosedHandler>
+    inline connection_t& on_closed(ClosedHandler handler) noexcept
+    {
+        closed_handler_ = std::move(handler);
+        return *this;
+    }
+
     inline void error(std::string const& message)
     {
         try
         {
             log(severity_level_t::error, message);
-            if (error_handler_ != nullptr)
-            {
-                error_handler_(*this, message);
-            }
+            if (error_handler_ != nullptr) error_handler_(*this, message);
         }
         catch (...)
         {
@@ -201,16 +220,18 @@ public:
         try
         {
             io::post(io_context_,
-                /*on_open_*/ [this]() noexcept
+                /*on_open_*/
+                [this]() noexcept
                 {
                     try
                     {
-                        if (state_.none()) { do_resolve_(); }
+                        if (is_closed()) do_resolve_();
                     }
                     catch (...)
                     {
                         log_exception("async_amqp::connection_t::on_open_"s);
-                    } });
+                    }
+                });
         }
         catch (...)
         {
@@ -223,21 +244,20 @@ public:
         try
         {
             io::post(io_context_,
-                /*on_close_*/ [this]() noexcept
+                /*on_close_*/
+                [this]() noexcept
                 {
                     try
                     {
-                        if (state_[state_t::closing]) { return; }
-
+                        if (state_[state_t::closing]) return;
                         state_.set(state_t::closing);
-
-                        if (connection_o_) { connection_o_.reset(); }
                         do_close_();
                     }
                     catch (...)
                     {
                         log_exception("async_amqp::connection_t::on_close_"s);
-                    } });
+                    }
+                });
         }
         catch (...)
         {
@@ -251,21 +271,22 @@ public:
         {
             io::post(
                 io_context_,
-                /*on_heartbeat_*/ [this, interval]() noexcept
+                /*on_heartbeat_*/
+                [this, interval]() noexcept
                 {
-                    assert(state_.none());
                     try
                     {
+                        interval_ = interval;
                         if (interval != 0)
                         {
-                            interval_ = interval;
                             do_timeout_check_();
                         }
                     }
                     catch (...)
                     {
                         log_exception("async_amqp::connection_t::on_heartbeat"s);
-                    } });
+                    }
+                });
         }
         catch (...)
         {
@@ -273,16 +294,11 @@ public:
         }
     }
 
+    io::io_context& io_context() { return io_context_; }
+
+    // Next public methods should be called only at the event processing loop of io_context_
     AMQP::Connection* amqp_connection() noexcept { return connection_o_ ? &(*connection_o_) : nullptr; }
-
-    template <typename ReadyHandler>
-    inline void on_ready(ReadyHandler handler) noexcept { ready_handler_ = std::move(handler); }
-
-    template <typename ErrorHandler>
-    inline void on_error(ErrorHandler handler) noexcept { error_handler_ = std::move(handler); }
-
-    template <typename ClosedHandler>
-    inline void on_closed(ClosedHandler handler) noexcept { closed_handler_ = std::move(handler); }
+    bool is_closed() const { return !socket_.is_open() && state_.none() && !connection_o_; }
 
 private:
     void do_resolve_()
@@ -290,7 +306,7 @@ private:
         using namespace std::placeholders;
         try
         {
-            assert(!socket_.is_open() && state_.none());
+            assert(is_closed());
 
             state_.set(state_t::resolving);
 
@@ -361,10 +377,7 @@ private:
                 input_buffer_.prepare(connection_o_->maxFrame());
 
                 do_read_();
-                if (!output_buffers_.empty())
-                {
-                    do_write_();
-                }
+                if (!output_buffers_.empty()) do_write_();
             }
             else
             {
@@ -383,10 +396,7 @@ private:
 
         try
         {
-            if (!socket_.is_open())
-            {
-                return;
-            }
+            if (!socket_.is_open()) return;
 
             state_.set(state_t::writing);
 
@@ -410,10 +420,7 @@ private:
             if (!ec)
             {
                 output_buffers_.pop_front();
-                if (!output_buffers_.empty())
-                {
-                    do_write_();
-                }
+                if (!output_buffers_.empty()) do_write_();
             }
             else
             {
@@ -432,10 +439,7 @@ private:
 
         try
         {
-            if (!socket_.is_open() || !connection_o_)
-            {
-                return;
-            }
+            if (!socket_.is_open() || !connection_o_) return;
 
             state_.set(state_t::reading);
 
@@ -456,13 +460,10 @@ private:
     {
         try
         {
-            if (!connection_o_)
-            {
-                return;
-            }
-
             auto guard{scope_guard([&](void*)
                 { state_.reset(state_t::reading); })};
+
+            if (!connection_o_) return;
 
             if (!ec)
             {
@@ -470,13 +471,12 @@ private:
                     parse_buffer_.end(),
                     io::buffers_begin(input_buffer_.data()),
                     io::buffers_end(input_buffer_.data()));
-                input_buffer_.consume(input_buffer_.size());
 
                 while (parse_buffer_.size() >= connection_o_->expected())
                 {
                     auto const parsed{connection_o_->parse(
                         parse_buffer_.data(), parse_buffer_.size())};
-                    if (parsed > 0)
+                    if (parsed > 0 && parse_buffer_.size() >= parsed)
                     {
                         parse_buffer_.erase(
                             parse_buffer_.begin(),
@@ -487,6 +487,7 @@ private:
                         break;
                     }
                 }
+                input_buffer_.consume(input_buffer_.size());
                 do_read_();
             }
             else
@@ -504,7 +505,11 @@ private:
     {
         try
         {
-            if (socket_.is_open())
+            if (connection_o_ && connection_o_->usable())
+            {
+                connection_o_->close();
+            }
+            else if (socket_.is_open())
             {
                 sys::error_code error;
                 socket_.close(error);
@@ -521,35 +526,48 @@ private:
     {
         try
         {
-            if (!state_[state_t::closing])
-            {
-                return;
-            }
+            if (!state_[state_t::closing]) return;
 
             if (state_[state_t::resolving]
                 || state_[state_t::connecting]
                 || state_[state_t::reading]
-                || state_[state_t::writing])
+                || state_[state_t::writing]
+                || socket_.is_open())
             {
-                io::post(io_context_,
-                    /*on_wait_for_closed_*/ [this]() noexcept
+                wait_for_closed_timer_.expires_after(io::chrono::seconds(1));
+                wait_for_closed_timer_.async_wait(
+                    /*on_wait_for_closed_*/
+                    [this](sys::error_code const& ec) noexcept
                     {
                         try
                         {
-                            do_wait_for_closed_();
+                            if (ec != io::error::operation_aborted)
+                            {
+                                if (ec) throw std::system_error(ec);
+
+                                if (socket_.is_open() && ++wait_counter_ >= 5)
+                                {
+                                    sys::error_code error;
+                                    socket_.close(error);
+                                }
+                                do_wait_for_closed_();
+                            }
                         }
                         catch (...)
                         {
                             log_exception("async_amqp::connection_t::on_wait_for_closed_"s);
-                        } });
+                        }
+                    });
             }
             else
             {
+                connection_o_.reset();
                 state_.reset();
-                if (closed_handler_ != nullptr)
-                {
-                    closed_handler_(*this);
-                }
+                input_buffer_.consume(input_buffer_.size());
+                parse_buffer_.clear();
+                output_buffers_.clear();
+                wait_counter_ = 0;
+                if (closed_handler_ != nullptr) closed_handler_(*this);
             }
         }
         catch (...)
@@ -580,8 +598,8 @@ private:
         using namespace std::placeholders;
         try
         {
-            timer_.expires_after(io::chrono::seconds(interval_));
-            timer_.async_wait(std::bind(&connection_t::on_timeout_check_, this, _1));
+            heartbeat_timer_.expires_after(io::chrono::seconds(interval_));
+            heartbeat_timer_.async_wait(std::bind(&connection_t::on_timeout_check_, this, _1));
         }
         catch (...)
         {
@@ -610,21 +628,20 @@ private:
 
             io::post(
                 io_context_,
-                /*on_data_*/ [this, data = std::move(data)]() mutable noexcept
+                /*on_data_*/
+                [this, data = std::move(data)]() mutable noexcept
                 {
                     try
                     {
-                        bool write_in_progress = !output_buffers_.empty();
+                        bool write_in_progress{!output_buffers_.empty()};
                         output_buffers_.emplace_back(std::move(data));
-                        if (!write_in_progress && socket_.is_open())
-                        {
-                            do_write_();
-                        }
+                        if (!write_in_progress && socket_.is_open()) do_write_();
                     }
                     catch (...)
                     {
                         log_exception("async_amqp::connection_t::on_data_"s);
-                    } });
+                    }
+                });
         }
         catch (...)
         {
@@ -642,10 +659,7 @@ private:
     {
         try
         {
-            if (ready_handler_ != nullptr)
-            {
-                ready_handler_(*this);
-            }
+            if (ready_handler_ != nullptr) ready_handler_(*this);
         }
         catch (...)
         {
@@ -668,10 +682,7 @@ private:
         //  connection object because it is no longer in a usable state
         try
         {
-            if (error_handler_ != nullptr)
-            {
-                error_handler_(*this, message);
-            }
+            if (error_handler_ != nullptr) error_handler_(*this, message);
         }
         catch (...)
         {
@@ -693,8 +704,11 @@ private:
         //  underlying TCP connection too
         try
         {
-            connection_o_.reset();
-            do_close_();
+            if (socket_.is_open())
+            {
+                sys::error_code error;
+                socket_.close(error);
+            }
         }
         catch (...)
         {
@@ -738,7 +752,6 @@ private:
 #endif
     }
 
-private:
     enum state_t
     {
         resolving,
@@ -764,7 +777,9 @@ private:
 
     std::bitset<state_t::size> state_;
     uint16_t interval_{0};
-    io::steady_timer timer_;
+    io::steady_timer heartbeat_timer_;
+    io::steady_timer wait_for_closed_timer_;
+    int wait_counter_{0};
 };
 
 } // namespace async_amqp
