@@ -40,7 +40,6 @@ void periodic_publish(
 
 int main()
 {
-    std::string const url{"amqp://127.0.0.1:5672/"s};
     std::string const exchange{"test_exchange"s};
     std::string const queue{"test_queue"s};
     std::string const route{"test_queue"s};
@@ -52,7 +51,7 @@ int main()
 
     channels_t channels(
         io_context,
-        url,
+        AMQP::Address("127.0.0.1", 5672, AMQP::Login("guest", "guest"), "/"),
         [](severity_level_t severity_level, std::string const& message)
         {
             std::clog << severity_level << "\t" << message << std::endl;
