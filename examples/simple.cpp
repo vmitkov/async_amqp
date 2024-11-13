@@ -3,11 +3,7 @@
 #include <boost/asio.hpp>
 #include <boost/json.hpp>
 
-#include <array>
-#include <cassert>
-#include <chrono>
-#include <functional>
-#include <optional>
+#include <list>
 #include <string>
 
 using async_amqp::channels_t;
@@ -21,93 +17,224 @@ namespace json = boost::json;
 using namespace std::literals;
 using namespace std::chrono_literals;
 
-class strings_t
+class rabbit_mq_t
 {
 public:
-    std::vector<std::string> values{
-        "one"s,
-        "two"s,
-        "tree"s,
-        "four"s,
-        "five"s,
-        "six"s,
-        "seven"s,
-        "eight"s,
-        "nine"s,
-        "ten"s,
-    };
-    unsigned sent_counter{0};
-    unsigned ack_counter{0};
-};
-
-void publish_strings(
-    io::io_context& io_context,
-    std::string const& channel_name,
-    channels_t& channels,
-    auto& strings)
-{
-    if (strings.sent_counter == strings.values.size())
+    rabbit_mq_t(io::io_context& io_context)
+        : io_context_(io_context),
+          channels_(
+              io_context_,
+              url_,
+              [](severity_level_t severity_level, std::string const& message)
+              {
+                  std::clog << severity_level << "\t" << message << std::endl;
+              })
     {
-        if (strings.ack_counter == strings.values.size())
+        AMQP::Table arguments;
+        arguments["x-queue-mode"] = "lazy";
+
+        auto [it, ok] = channels_.add_out_channel(
+            out_channel_name_,
+            exchange_,
+            route_,
+            route_,
+            [&](out_channel_t&)
+            {
+                ready_ = true;
+            });
+
+        if (!ok)
         {
-            io::post(io_context, [&]
-                { io_context.stop(); });
-            return;
+            throw std::runtime_error("channel hasn't been added");
+        }
+
+        it->second
+            .on_publish_ack([&](out_channel_t&, std::string const& buffer)
+                { ++ack_counter_; })
+            .exchange_type(AMQP::direct)
+            .queue_flags(AMQP::durable)
+            .queue_arguments(arguments);
+
+        channels_.heartbeat_interval(60);
+        channels_.open();
+    }
+
+    void publish(json::value msg)
+    {
+        try
+        {
+            io::post(
+                io_context_,
+                [this, msg = std::move(msg)]() mutable noexcept
+                {
+                    do_publish_(std::move(msg));
+                });
+        }
+        catch (...)
+        {
+            std::throw_with_nested(std::runtime_error("rabbit_mq_t::publish"));
         }
     }
-    else
+
+    void log_exception() { channels_.log_exception(); }
+
+    void close()
     {
-        channels.publish(channel_name, json::object{{std::to_string(strings.sent_counter + 1), strings.values[strings.sent_counter]}});
-        ++strings.sent_counter;
+        try
+        {
+            io::post(io_context_,
+                [this]
+                {
+                    if (queue_.empty() && sent_counter_ == ack_counter_)
+                    {
+                        //channels_.close();
+                        io_context_.stop();
+                    }
+                    else
+                    {
+                        io::post(io_context_,
+                            [this]
+                            { close(); });
+                    }
+                });
+        }
+        catch (...)
+        {
+            std::throw_with_nested(std::runtime_error("rabbit_mq_t::stop"));
+        }
     }
 
-    io::post(io_context, [&]
-        { publish_strings(io_context, channel_name, channels, strings); });
-}
+private:
+    void do_publish_(json::value msg)
+    {
+        try
+        {
+            bool process_in_progress{!queue_.empty()};
+            queue_.push(std::move(msg));
+
+            if (!process_in_progress) process_queue_();
+        }
+        catch (...)
+        {
+            log_exception();
+        }
+    }
+
+    void process_queue_()
+    {
+        try
+        {
+            io::post(io_context_,
+                [this]
+                { do_process_queue_(); });
+        }
+        catch (...)
+        {
+            std::throw_with_nested(std::runtime_error("rabbit_mq_t::process_queue_"));
+        }
+    }
+
+    void do_process_queue_()
+    {
+        try
+        {
+            if (ready_)
+            {
+                channels_.publish(out_channel_name_, queue_.front());
+                queue_.pop();
+                ++sent_counter_;
+            }
+            if (!queue_.empty()) process_queue_();
+        }
+        catch (...)
+        {
+            log_exception();
+        }
+    }
+
+    std::string const url_{"amqp://127.0.0.1:5672/"s};
+    std::string const exchange_{"test_exchange"s};
+    std::string const route_{"simple_test_queue"s};
+    std::string const out_channel_name_{"out_simple_test"s};
+
+    io::io_context& io_context_;
+    channels_t channels_;
+    std::queue<json::value> queue_;
+    bool ready_{false};
+    size_t sent_counter_{};
+    size_t ack_counter_{};
+};
+
+class job_t
+{
+public:
+    job_t(io::io_context& io_context, rabbit_mq_t& rabbit_mq, auto& list)
+        : io_context_(io_context),
+          rabbit_mq_(rabbit_mq)
+    {
+        process_list_(list);
+    }
+
+private:
+    void process_list_(auto& list)
+    {
+        try
+        {
+            io::post(
+                io_context_,
+                [&]() mutable noexcept
+                { do_process_list_(list); });
+        }
+        catch (...)
+        {
+            std::throw_with_nested(std::runtime_error("job_t::process_list_"));
+        }
+    }
+
+    void do_process_list_(auto& list)
+    {
+        try
+        {
+            if (!list.empty())
+            {
+                rabbit_mq_.publish(std::move(list.front()));
+                list.pop_front();
+                process_list_(list);
+            }
+            else
+            {
+                rabbit_mq_.close();
+            }
+        }
+        catch (...)
+        {
+            rabbit_mq_.log_exception();
+        }
+    }
+
+    io::io_context& io_context_;
+    rabbit_mq_t& rabbit_mq_;
+};
 
 int main()
 {
-    std::string const url{"amqp://127.0.0.1:5672/"s};
-    std::string const exchange{"test_exchange"s};
-    std::string const route{"simple_test_queue"s};
-    std::string const out_channel_name{"out_simple_test"s};
+    std::list<json::value> list{
+        {{"1", "one"}},
+        {{"2", "two"}},
+        {{"3", "tree"}},
+        {{"4", "four"}},
+        {{"5", "five"}},
+        {{"6", "six"}},
+        {{"7", "seven"}},
+        {{"8", "eight"}},
+        {{"9", "nine"}},
+        {{"10", "ten"}},
+    };
 
     io::io_context io_context;
 
-    strings_t strings;
-
-    channels_t channels(
-        io_context,
-        url,
-        [](severity_level_t severity_level, std::string const& message)
-        {
-            std::clog << severity_level << "\t" << message << std::endl;
-        });
-
-    AMQP::Table arguments;
-    arguments["x-queue-mode"] = "lazy";
-
-    auto [it, ok] = channels.add_out_channel(
-        out_channel_name,
-        exchange,
-        route,
-        route,
-        [&](out_channel_t&)
-        {
-            publish_strings(io_context, out_channel_name, channels, strings);
-        });
-
-    assert(ok);
-
-    it->second
-        .on_publish_ack([&](out_channel_t&, std::string const& buffer)
-            { ++strings.ack_counter; })
-        .exchange_type(AMQP::direct)
-        .queue_flags(AMQP::durable)
-        .queue_arguments(arguments);
-
-    channels.heartbeat_interval(60);
-    channels.open();
+    rabbit_mq_t rabbit_mq(io_context);
+    job_t(io_context, rabbit_mq, list);
 
     io::signal_set signals(io_context, SIGINT, SIGTERM);
     signals.async_wait([&](auto, auto)
