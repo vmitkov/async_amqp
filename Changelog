@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.5] - 2024-12-25
+### Added
+- Option to install library
+
 ## [2.2.4] - 2023-10-12
 ### Added
 - Test async_amqp_open_close_test.

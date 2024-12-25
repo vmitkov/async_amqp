@@ -162,13 +162,13 @@ public:
         io::io_context& io_context,
         AMQP::Address address,
         LogHandler log_handler)
-        : io_context_(io_context),
+        : log_t(std::move(log_handler)),
+          io_context_(io_context),
           address_(std::move(address)),
           resolver_(io_context),
           socket_(io_context),
           heartbeat_timer_(io_context),
-          wait_for_closed_timer_(io_context),
-          log_t(std::move(log_handler))
+          wait_for_closed_timer_(io_context)
     {
         log(severity_level_t::debug, "async_amqp::connection_t::connection_t");
     }

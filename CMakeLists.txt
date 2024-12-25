@@ -1,6 +1,6 @@
 ﻿cmake_minimum_required (VERSION 3.12)
 
-project(async_amqp VERSION "2.2.4")
+project(async_amqp VERSION "2.2.5")
 
 add_subdirectory(external)
 
@@ -25,7 +25,39 @@ if (WIN32)
     add_definitions(-DBOOST_USE_WINAPI_VERSION=0x0601)
 endif ()
 
-include_directories(include)
+add_library(${PROJECT_NAME} INTERFACE)
+
+include(GNUInstallDirs)
+
+target_include_directories(
+    ${PROJECT_NAME}
+    INTERFACE 
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+
+install(
+    TARGETS
+        ${PROJECT_NAME}
+    EXPORT
+        ${PROJECT_NAME}-config
+)
+
+install(
+    EXPORT
+        ${PROJECT_NAME}-config
+    NAMESPACE 
+        ${PROJECT_NAME}::
+    DESTINATION 
+        ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}
+)
+
+install(
+    DIRECTORY 
+        ${CMAKE_CURRENT_LIST_DIR}/include/${PROJECT_NAME}/
+    DESTINATION 
+        ${CMAKE_INSTALL_INCLUDEDIR}/${PROJECT_NAME}
+)
 
 add_subdirectory (examples)
 

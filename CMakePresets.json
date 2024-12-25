@@ -36,27 +36,11 @@
     {
       "name": "x64-release",
       "displayName": "x64 Release",
-      "inherits": "x64-debug",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
-      }
-    },
-    {
-      "name": "x86-debug",
-      "displayName": "x86 Debug",
       "inherits": "windows-base",
       "architecture": {
-        "value": "x86",
+        "value": "x64",
         "strategy": "external"
       },
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
-      }
-    },
-    {
-      "name": "x86-release",
-      "displayName": "x86 Release",
-      "inherits": "x86-debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
@@ -68,7 +52,8 @@
       "binaryDir": "${sourceDir}/out/build/${presetName}",
       "installDir": "${sourceDir}/out/install/${presetName}",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "-Wall -Werror -Wfatal-errors"
       },
       "condition": {
         "type": "equals",
@@ -82,18 +67,40 @@
       }
     },
     {
-      "name": "macos-debug",
-      "displayName": "macOS Debug",
+      "name": "linux-release",
+      "displayName": "Linux Release",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/out/build/${presetName}",
       "installDir": "${sourceDir}/out/install/${presetName}",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_FLAGS": "-Wall -Werror -Wfatal-errors"
       },
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
-        "rhs": "Darwin"
+        "rhs": "Linux"
+      },
+      "vendor": {
+        "microsoft.com/VisualStudioRemoteSettings/CMake/1.0": {
+          "sourceDir": "$env{HOME}/.vs/$ms{projectDirName}"
+        }
+      }
+    },
+    {
+      "name": "linux-relwithdebinfo",
+      "displayName": "Linux RelWithDebInfo",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "installDir": "${sourceDir}/out/install/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_CXX_FLAGS": "-Wall -Werror -Wfatal-errors"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
       },
       "vendor": {
         "microsoft.com/VisualStudioRemoteSettings/CMake/1.0": {
@@ -104,10 +111,24 @@
   ],
   "buildPresets": [
     {
-      "name": "buildPresets",
-      "displayName": "Custom build preset",
-      "description": "Custom build preset description",
+      "name": "LinuxDebugBuildPreset",
+      "displayName": "Linux debug build preset",
+      "description": "Linux debug build preset description",
       "configurePreset": "linux-debug",
+      "jobs": 1
+    },
+    {
+      "name": "LinuxReleaseBuildPreset",
+      "displayName": "Linux release build preset",
+      "description": "Linux release build preset description",
+      "configurePreset": "linux-release",
+      "jobs": 1
+    },
+    {
+      "name": "LinuxRelWithDebInfoBuildPreset",
+      "displayName": "Linux relwithdebinfo build preset",
+      "description": "Linux relwithdebinfo build preset description",
+      "configurePreset": "linux-relwithdebinfo",
       "jobs": 1
     }
   ]
