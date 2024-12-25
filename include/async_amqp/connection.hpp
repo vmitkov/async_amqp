@@ -160,7 +160,7 @@ public:
     template <typename LogHandler>
     connection_t(
         io::io_context& io_context,
-        AMQP::Address address,
+        AMQP::Address&& address,
         LogHandler log_handler)
         : log_t(std::move(log_handler)),
           io_context_(io_context),
