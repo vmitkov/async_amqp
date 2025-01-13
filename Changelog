@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.6] - 2025-01-13
+### Changed
+- Macroses WIN32_WINNT and BOOST_USE_WINAPI_VERSION  from 0x0601 to 0x0A00.
+
 ## [2.2.5] - 2024-12-25
 ### Added
 - Option to install library
