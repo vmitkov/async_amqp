@@ -49,7 +49,7 @@ public:
         }
 
         it->second
-            .on_publish_ack([&](out_channel_t&, std::string const& buffer)
+            .on_publish_ack([&](out_channel_t&, std::string const& /*buffer*/)
                 { ++ack_counter_; })
             .exchange_type(AMQP::direct)
             .queue_flags(AMQP::durable)

@@ -212,7 +212,7 @@ public:
 
 private:
     void on_received_(
-        const AMQP::Message& message, uint64_t delivery_tag, bool redelivered) noexcept
+        const AMQP::Message& message, uint64_t delivery_tag, bool /*redelivered*/) noexcept
     {
         try
         {

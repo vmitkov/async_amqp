@@ -4,6 +4,12 @@ function(add_boost_test SOURCE_FILE_NAME)
 
     add_executable(${TEST_EXECUTABLE_NAME} ${SOURCE_FILE_NAME})
 
+    if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+        set_target_properties(${TEST_EXECUTABLE_NAME} PROPERTIES COMPILE_FLAGS ${GCC_CXX_FLAGS})
+    elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
+        set_target_properties(${TEST_EXECUTABLE_NAME} PROPERTIES COMPILE_FLAGS ${MSVC_CXX_FLAGS})
+    endif()
+
     target_link_libraries(${TEST_EXECUTABLE_NAME} Boost::unit_test_framework)
     
     foreach(DEPENDENCY_LIB IN LISTS ARGN)

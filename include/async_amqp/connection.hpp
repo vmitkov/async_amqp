@@ -100,7 +100,7 @@ public:
         {
             try
             {
-                log(severity_level_t::error, std::string(level, ' ') + "system_error: "s + e.what() + ", message: "s + e.code().message());
+                log(severity_level_t::error, std::string(static_cast<size_t>(level), ' ') + "system_error: "s + e.what() + ", message: "s + e.code().message());
                 std::rethrow_if_nested(e);
             }
             catch (...)
@@ -112,7 +112,7 @@ public:
         {
             try
             {
-                log(severity_level_t::error, std::string(level, ' ') + "system_error: "s + e.what() + ", message: "s + e.code().message());
+                log(severity_level_t::error, std::string(static_cast<size_t>(level), ' ') + "system_error: "s + e.what() + ", message: "s + e.code().message());
                 std::rethrow_if_nested(e);
             }
             catch (...)
@@ -124,7 +124,7 @@ public:
         {
             try
             {
-                log(severity_level_t::error, std::string(level, ' ') + "exception: "s + e.what());
+                log(severity_level_t::error, std::string(static_cast<size_t>(level), ' ') + "exception: "s + e.what());
                 std::rethrow_if_nested(e);
             }
             catch (...)
@@ -134,7 +134,7 @@ public:
         }
         catch (...)
         {
-            log(severity_level_t::error, std::string(level, ' ') + "unknown exception"s);
+            log(severity_level_t::error, std::string(static_cast<size_t>(level), ' ') + "unknown exception"s);
         }
     }
 
@@ -480,7 +480,7 @@ private:
                     {
                         parse_buffer_.erase(
                             parse_buffer_.begin(),
-                            parse_buffer_.begin() + parsed);
+                            std::next(parse_buffer_.begin(), static_cast<int>(parsed)));
                     }
                     else
                     {
@@ -655,7 +655,7 @@ private:
      *  to use.
      *  @param  connection      The connection that can now be used
      */
-    virtual void onReady(AMQP::Connection* connection_p) noexcept
+    virtual void onReady(AMQP::Connection* /*connection_p*/) noexcept
     {
         try
         {
@@ -674,7 +674,7 @@ private:
      *  @param  connection      The connection on which the error occurred
      *  @param  message         A human readable error message
      */
-    virtual void onError(AMQP::Connection* connection_p, const char* message) noexcept
+    virtual void onError(AMQP::Connection* /*connection_p*/, const char* message) noexcept
     {
         // @todo
         //  add your own implementation, for example by reporting the error
@@ -697,7 +697,7 @@ private:
      *
      *  @param  connection      The connection that was closed and that is now unusable
      */
-    virtual void onClosed(AMQP::Connection* connection_p) noexcept
+    virtual void onClosed(AMQP::Connection* /*connection_p*/) noexcept
     {
         // @todo
         //  add your own implementation, for example by closing down the
@@ -724,7 +724,7 @@ private:
      *  @param  connection      The connection on which the error occurred
      *  @param  interval        The suggested interval in seconds
      */
-    virtual uint16_t onNegotiate(AMQP::Connection* connection_p, uint16_t interval)
+    virtual uint16_t onNegotiate(AMQP::Connection* /*connection_p*/, uint16_t /*interval*/)
     {
         // @todo
         //  set a timer in your event loop, and make sure that you call
@@ -745,7 +745,7 @@ private:
      *
      *  @param  connection      The connection over which the heartbeat was received
      */
-    virtual void onHeartbeat(AMQP::Connection* connection_p)
+    virtual void onHeartbeat(AMQP::Connection* /*connection_p*/)
     {
 #ifndef NDEBUG
         log(severity_level_t::trace, "async_amqp::connection_t::onHeartbeat"s);

@@ -216,7 +216,7 @@ BOOST_AUTO_TEST_CASE(async_amqp_test)
             options.amqp_exchange_2,
             options.amqp_route_2,
             options.amqp_route_2,
-            [&](out_channel_t& channel)
+            [&](out_channel_t& /*channel*/)
             {
                 periodic_publish_2(
                     publish_timer_2,
