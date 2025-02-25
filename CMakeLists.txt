@@ -25,8 +25,10 @@ include_directories(${Boost_INCLUDE_DIR})
 
 if (WIN32)
     add_definitions(-DNOMINMAX)
-    add_definitions(-D_WIN32_WINNT=0x0601)
-    add_definitions(-DBOOST_USE_WINAPI_VERSION=0x0601)
+#    add_definitions(-D_WIN32_WINNT=0x0601)
+#    add_definitions(-DBOOST_USE_WINAPI_VERSION=0x0601)
+    add_definitions(-D_WIN32_WINNT=0x0A00)
+    add_definitions(-DBOOST_USE_WINAPI_VERSION=0x0A00)
 endif ()
 
 add_library(${PROJECT_NAME} INTERFACE)
