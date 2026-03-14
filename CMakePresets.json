@@ -107,6 +107,54 @@
           "sourceDir": "$env{HOME}/.vs/$ms{projectDirName}"
         }
       }
+    },
+    {
+      "name": "mac-debug",
+      "displayName": "macOS Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "installDir": "${sourceDir}/out/install/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "-Wall -Werror -Wfatal-errors"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      }
+    },
+    {
+      "name": "mac-release",
+      "displayName": "macOS Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "installDir": "${sourceDir}/out/install/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_FLAGS": "-Wall -Werror -Wfatal-errors"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      }
+    },
+    {
+      "name": "mac-relwithdebinfo",
+      "displayName": "macOS RelWithDebInfo",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "installDir": "${sourceDir}/out/install/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_CXX_FLAGS": "-Wall -Werror -Wfatal-errors"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      }
     }
   ],
   "buildPresets": [
@@ -129,6 +177,27 @@
       "displayName": "Linux relwithdebinfo build preset",
       "description": "Linux relwithdebinfo build preset description",
       "configurePreset": "linux-relwithdebinfo",
+      "jobs": 1
+    },
+    {
+      "name": "MacDebugBuildPreset",
+      "displayName": "macOS debug build preset",
+      "description": "macOS debug build preset description",
+      "configurePreset": "mac-debug",
+      "jobs": 1
+    },
+    {
+      "name": "MacReleaseBuildPreset",
+      "displayName": "macOS release build preset",
+      "description": "macOS release build preset description",
+      "configurePreset": "mac-release",
+      "jobs": 1
+    },
+    {
+      "name": "MacRelWithDebInfoBuildPreset",
+      "displayName": "macOS relwithdebinfo build preset",
+      "description": "macOS relwithdebinfo build preset description",
+      "configurePreset": "mac-relwithdebinfo",
       "jobs": 1
     }
   ]

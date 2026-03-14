@@ -1,6 +1,10 @@
 ﻿cmake_minimum_required (VERSION 3.12)
 
-project(async_amqp VERSION "2.2.7")
+if(POLICY CMP0167)
+    cmake_policy(SET CMP0167 OLD)
+endif()
+
+project(async_amqp VERSION "2.2.8")
 
 add_subdirectory(external)
 
@@ -13,12 +17,17 @@ set(GCC_CXX_FLAGS "-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-convers
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
-SET(Boost_USE_STATIC_LIBS ON)
-find_package (Boost REQUIRED COMPONENTS
+if(APPLE)
+    set(Boost_USE_STATIC_LIBS OFF)
+else()
+    set(Boost_USE_STATIC_LIBS ON)
+endif()
+set(Boost_NO_BOOST_CMAKE ON)
+
+find_package (Boost REQUIRED MODULE COMPONENTS
   log
   log_setup
   json
-  system
   thread
   unit_test_framework)
 include_directories(${Boost_INCLUDE_DIR})

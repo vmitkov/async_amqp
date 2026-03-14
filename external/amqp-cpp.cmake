@@ -12,6 +12,7 @@ FetchContent_Declare(
 FetchContent_GetProperties(amqp-cpp)
 if(NOT amqp-cpp)
   FetchContent_Populate(amqp-cpp)
+  set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
   set(AMQP-CPP_LINUX_TCP OFF CACHE INTERNAL "Build Linux-only TCP module")
   add_subdirectory(${amqp-cpp_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR}/amqp-cpp-build)
 endif()

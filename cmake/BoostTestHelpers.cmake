@@ -4,6 +4,11 @@ function(add_boost_test SOURCE_FILE_NAME)
 
     add_executable(${TEST_EXECUTABLE_NAME} ${SOURCE_FILE_NAME})
 
+    target_compile_definitions(${TEST_EXECUTABLE_NAME} PRIVATE
+        BOOST_TEST_DYN_LINK
+        BOOST_LOG_DYN_LINK
+        BOOST_LOG_SETUP_DYN_LINK)
+
     if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
         set_target_properties(${TEST_EXECUTABLE_NAME} PROPERTIES COMPILE_FLAGS ${GCC_CXX_FLAGS})
     elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")

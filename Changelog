@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.8] - 2026-03-14
+### Added
+- macOS CMake configure presets: mac-debug, mac-release, mac-relwithdebinfo.
+- macOS CMake build presets: MacDebugBuildPreset, MacReleaseBuildPreset, MacRelWithDebInfoBuildPreset.
+
+### Changed
+- Build setup updated to support latest Boost on macOS: use `FindBoost` module mode and remove `Boost::system` dependency.
+- Project version updated to 2.2.8.
+
+### Fixed
+- CMake compatibility with newer CMake versions for external AMQP-CPP fetch/build flow.
+- macOS test target link settings for Boost.Test/Boost.Log dynamic linking.
+
 ## [2.2.7] - 2025-02-25
 ### Changed
 - Enhance compiler flags and clean up code
