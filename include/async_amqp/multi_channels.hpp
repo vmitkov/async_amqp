@@ -466,12 +466,12 @@ public:
     template <typename LogHandler>
     channels_t(
         io::io_context& io_context,
-        std::string const& url,
+        AMQP::Address&& address,
         LogHandler log_handler)
         : log_t(std::move(log_handler)),
           io_context_(io_context),
           reconnection_timer_(io_context),
-          connection_(io_context, url, std::bind(&channels_t::log, this, _1, _2))
+          connection_(io_context, std::move(address), std::bind(&channels_t::log, this, _1, _2))
     {
         try
         {
