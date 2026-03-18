@@ -4,7 +4,7 @@ if(POLICY CMP0167)
     cmake_policy(SET CMP0167 OLD)
 endif()
 
-project(async_amqp VERSION "2.2.8")
+project(async_amqp VERSION "2.2.9")
 
 add_subdirectory(external)
 

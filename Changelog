@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.9] - 2026-03-18
+### Fixed
+- `BOOST_TEST_DYN_LINK`, `BOOST_LOG_DYN_LINK`, and `BOOST_LOG_SETUP_DYN_LINK` compile definitions in `cmake/BoostTestHelpers.cmake` are now only applied when Boost is configured for dynamic linking, fixing linker errors when building against static Boost libraries on Linux.
+
 ## [2.2.8] - 2026-03-14
 ### Added
 - macOS CMake configure presets: mac-debug, mac-release, mac-relwithdebinfo.
